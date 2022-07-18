@@ -2,7 +2,6 @@
 # author: jiayao
 # TODO: change of the datatype
 
-from ast import If
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
@@ -1051,7 +1050,7 @@ def slrsim_(spinarray,Nt,dt,rf,gr):
 
 # SLR transform
 # --------------------------------------
-def slr_transform_spin(spin,Nt,dt,rf,g):
+def slr_transform_spin(spin,Nt,dt,rf):
 	"""assume g is constant"""
 	gamma = spin.gamma
 	#
@@ -1067,9 +1066,9 @@ def slr_transform_spin(spin,Nt,dt,rf,g):
 	Sj = -(0.0+1.0j)*(torch.exp((0.0+1.0j)*rf.angle()))*torch.sin(phi_hist/2)
 	for t in range(Nt):
 		A_tmp1 = Cj[t]*A
-		A_tmp2 = -Sj[t].conj()*B
+		A_tmp2 = -Sj[t].conj()*B # term z^{-1}
 		B_tmp1 = Sj[t]*A
-		B_tmp2 = Cj*B
+		B_tmp2 = Cj*B # term z^{-1}
 		B = B_tmp1
 		B[1:] = B[1:] + B_tmp2[:-1]
 		A = A_tmp1
@@ -1078,10 +1077,31 @@ def slr_transform_spin(spin,Nt,dt,rf,g):
 	# -------------
 # SLR transform along different locations
 # --------------------------------
-def slr_transform_1d(loc,Nt,dt,rf,g):
+def plot_slr_transform_freq_response(B,spin,dt,g,nx=100,dx=0.1,picname = 'pictures/mri_tmp_pic_slr_transform_test.png',save_fig=False):
+	'''nx: number of location for evaluation in one side, dx: distance between two locations (cm)
+	g:mT/m'''
+	gamma = spin.gamma # MHz/T
+	x = (torch.arange(nx*2+1,device=device) - nx)*dx
+	freq = (0+1.0j)*gamma*g*x*dt*(1e-2)*2*torch.pi
+	response = torch.zeros_like(freq)
+	for i in range(len(B)):
+		response = response + torch.exp(-i*freq)*B[i]
+	plt.figure()
+	plt.plot(x.tolist(),response.abs().tolist(),ls='--')
+	plt.plot(x.tolist(),response.real.tolist(),label='real')
+	plt.plot(x.tolist(),response.imag.tolist(),label='imag')
+	plt.legend()
+	plt.xlabel('cm')
+	if save_fig:
+		picname = 'pictures/mri_tmp_pic_slr_transform_test.png'
+		print('save fig...'+picname)
+		plt.savefig(picname)
+	else:
+		plt.show()
 	return
 	# -------
-
+# ------------------------------------------------------
+# -----------------------------------------------------
 def test_slr_transform():
 	spin = Spin()
 	spin.show_info()
@@ -1089,7 +1109,7 @@ def test_slr_transform():
 	pulse.show_info()
 	Nt,dt,rf,gr = pulse.Nt,pulse.dt,pulse.rf,pulse.gr
 	# slr transform:
-	A,B = slr_transform_spin(spin,Nt,dt,rf,gr)
+	A,B = slr_transform_spin(spin,Nt,dt,rf)
 	# print(A)
 	# print(B)
 	# Fourier transform of B
@@ -1097,7 +1117,7 @@ def test_slr_transform():
 	freq = torch.arange(0,N)
 	print(len(freq),N)
 
-	if True: # plot
+	if False: # plot
 		plt.figure()
 		# plt.plot(A.abs().tolist())
 		plt.plot(B.abs().tolist(),ls='--')
@@ -1107,6 +1127,8 @@ def test_slr_transform():
 			plt.savefig(picname)
 		else:
 			plt.show()
+	if True:
+		plot_slr_transform_freq_response(B,spin,dt,g=0.5,save_fig=SAVE_FIG)
 	return
 
 
@@ -1727,14 +1749,7 @@ def plot_slices(spinarraygrid,M,plotmethod,valuerange=None,picname='pictures/mri
 	else:
 		plot_images(images,valuerange,picname)
 	return
-
-# x = np.arange(100).reshape(10,10)
-# image_list = [x,x]
-# fig,axs = plt.subplots()
-# tt = axs.imshow(x)
-# # fig.colorbar(tt)
-# plt.show()
-
+# ----------------------------------------------------
 def test_plots():
 	cube = Build_SpinArray(fov=[4,4,4],dim=[5,5,5])
 	cube.show_info()
@@ -1746,6 +1761,13 @@ def test_plots():
 		plot_images(imagelist,valuerange=[-9,90],save_fig=SAVE_FIG)
 	if True:
 		plot_cube_slices(cube,cube.T2,save_fig=SAVE_FIG)
+	if False:
+		x = np.arange(100).reshape(10,10)
+		image_list = [x,x]
+		fig,axs = plt.subplots()
+		tt = axs.imshow(x)
+		# fig.colorbar(tt)
+		plt.show()
 
 
 
@@ -2225,42 +2247,47 @@ def example_backward():
 
 if __name__ == "__main__":
 	MR()
-	# example()
+
+	# some basic examples of using this module:
+	example()
+
+	# example of doing backward of the simulation:
 	# example_backward()
 
 	# example_pulse()
 	# R = RotationMatrix()
 	# R.example()
 
-	# -------------------------
-	# test the examples in function example():
-	# example_4_spin_freeprecession()
-	# example_5_spinarray_sim()
-	# example_6_arraysim_1d()
-	# example_7_spin_SLR()
-	# example_8_array_slr_z()
-
+	# ----------------------------------------------
 	# some test function while coding: (not important)
-	# test_freeprecession()
-	# test2()
-	# test3()
-	# test_slr()
-	# test_plots()
-
-	if False:
-		cube = Build_SpinArray(fov=[1,1,1],dim=[3,3,3])
-		pulse = example_pulse()
-		Nt,dt,rf,gr = pulse.Nt,pulse.dt,pulse.rf,pulse.gr
-		gr = torch.rand_like(gr)
-		rf.requires_grad = True
-		gr.requires_grad = True
-		Beff_hist = spinarray_Beffhist(cube,Nt,dt,rf,gr)
-		loss = torch.sum(Beff_hist**2)
-		loss.backward()
-		# print(rf.grad)
-		print(gr.grad)
-	if False:
-		pulse = example_pulse()
-		# pulse.show_info()
 	if True:
-		test_slr_transform()
+		# -------------------------
+		# test the examples in function example():
+		# example_4_spin_freeprecession()
+		# example_5_spinarray_sim()
+		# example_6_arraysim_1d()
+		# example_7_spin_SLR()
+		# example_8_array_slr_z()
+		# test_freeprecession()
+		# test2()
+		# test3()
+		# test_slr()
+		# test_plots()
+
+		if False:
+			cube = Build_SpinArray(fov=[1,1,1],dim=[3,3,3])
+			pulse = example_pulse()
+			Nt,dt,rf,gr = pulse.Nt,pulse.dt,pulse.rf,pulse.gr
+			gr = torch.rand_like(gr)
+			rf.requires_grad = True
+			gr.requires_grad = True
+			Beff_hist = spinarray_Beffhist(cube,Nt,dt,rf,gr)
+			loss = torch.sum(Beff_hist**2)
+			loss.backward()
+			# print(rf.grad)
+			print(gr.grad)
+		if False:
+			pulse = example_pulse()
+			# pulse.show_info()
+		if True:
+			test_slr_transform()
