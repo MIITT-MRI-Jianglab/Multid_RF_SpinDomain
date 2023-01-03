@@ -23,6 +23,8 @@ The basic functions for describing the spin behaviors and simulations including 
 
 
 ## Demos
-Two demos are provided
+Demos
 - `EX_pulse_design_3d.py`
-- 
+
+## Additional experiments
+- Compare methods of calculating derivative
