@@ -27,4 +27,6 @@ Demos
 - `EX_pulse_design_3d.py`
 
 ## Additional experiments
-- Compare methods of calculating derivative
+- Compare methods for calculating derivative (for spin-domain simulation): two methods are compared, one is only build forward computation, another is our implementation with both forward and backward function. The backward function is explicitly implemented in Pytorch using auto-differentiation. 
+  - The experiment is `EX_simu_compare.py`
+  - The comparison of the speed: (1000 time points for RF pulse) ![]()
