@@ -8,9 +8,9 @@ import matplotlib.pyplot as plt
 from time import time
 from scipy.interpolate import interp1d
 
-device = "cuda:0" if torch.cuda.is_available() else "cpu"
-device = torch.device(device)
-print('\t>> mri: using device:',device)
+# device = "cuda:0" if torch.cuda.is_available() else "cpu"
+# device = torch.device(device)
+# print('\t>> mri: using device:',device)
 
 
 # some variables for the lab computer
@@ -144,22 +144,22 @@ def estimate_rf_mag(angle,T,gamma=42.48):
 class Pulse:
 	'''rf:(2*Nt)(mT), gr:(3*Nt)(mT/m)'''
 	def __init__(self,rf=None,gr=None,dt=1.0,device=torch.device("cpu")) -> None:
+		self.device = device
 		self.Nt = 10 # time points
 		self.dt = dt # ms
 		self._set_rf(rf)
 		self._set_gr(gr)
 		self._set_Nt()
-		self.device = device
 		pass
 	def _set_rf(self,rf):
-		if rf:
-			self.rf = rf
+		if rf!=None:
+			self.rf = rf.to(self.device)
 		else:
 			self.rf = torch.zeros((2,self.Nt),device=self.device) # mT	
 		return
 	def _set_gr(self,gr):
-		if gr:
-			self.gr = gr
+		if gr!=None:
+			self.gr = gr.to(self.device)
 		else:
 			self.gr = torch.zeros((3,self.Nt),device=self.device) # mT/m
 		return
@@ -201,7 +201,7 @@ class Pulse:
 		return pulse
 	def change_duration(self,T):
 		'''
-		T:(ms)
+		T:(ms), puase
 		'''
 		# print(type(self.dt))
 		old_t = np.arange(self.Nt)*(T/self.Nt)
@@ -277,7 +277,7 @@ def rf_modulate(pulse,dfreq):
 	dev = pulse.device
 	# TODO then use this device
 	domega = 2*torch.pi*dfreq # omega = 2*pi*f, 2*pi*Hz = rad/s
-	t = torch.arange(pulse.Nt,device=device)*pulse.dt*1e-3 # (s)
+	t = torch.arange(pulse.Nt,device=dev)*pulse.dt*1e-3 # (s)
 	moduler_c = torch.cos(domega*t)
 	moduler_i = torch.sin(domega*t)
 	rf = torch.zeros_like(pulse.rf)
@@ -295,7 +295,7 @@ class Spin:
 	# T2 = 100.0 # ms
 	# x,y,z = 0.,0.,0. # (cm)
 	def __init__(self,T1=1000.0,T2=100.0,df=0.0,gamma=42.48,loc=torch.tensor([0.,0.,0.]),
-				mag=torch.tensor([0.,0.,1.],device=device),device=torch.device("cpu")):
+				mag=torch.tensor([0.,0.,1.]),device=torch.device("cpu")):
 		"""properties:
 			location: x,y,z
 			gamma, 
@@ -318,6 +318,7 @@ class Spin:
 		return
 	def set_Mag(self,M):
 		self.Mag = torch.empty(3,device=self.device)
+		M = M.to(self.device)
 		# normalize:
 		# M_norm = torch.sqrt(M[0]**2 + M[1]**2 + M[2]**2)
 		M_norm = torch.norm(M)
@@ -415,7 +416,7 @@ class SpinArray:
 		if tmp_num == 0:
 			return
 		else:
-			self.T1[loc_idx] = torch.ones(tmp_num,device=device)*T1
+			self.T1[loc_idx] = torch.ones(tmp_num,device=self.device)*T1
 			return
 	def set_selected_T2(self,loc_idx,T2):
 		'''T1: just a number (ms)'''
@@ -423,7 +424,7 @@ class SpinArray:
 		if tmp_num == 0:
 			return
 		else:
-			self.T2[loc_idx] = torch.ones(tmp_num,device=device)*T2
+			self.T2[loc_idx] = torch.ones(tmp_num,device=self.device)*T2
 			return
 	def _if_as_grid(self):
 		return self._as_grid
@@ -487,7 +488,7 @@ class SpinArray:
 		spin.set_Mag(self.Mag[:,index])
 		return spin
 	def get_index_all(self):
-		return torch.arange(self.num,device=device)
+		return torch.arange(self.num,device=self.device)
 	def get_index(self,xlim,ylim,zlim):
 		'''xlim: [xmin,xmax](cm), ...'''
 		idx_x = (self.loc[0,:]>=xlim[0]) & (self.loc[0,:]<=xlim[1])
@@ -671,7 +672,8 @@ def Build_SpinArray(fov=[4,4,4],dim=[3,3,3],T1=1000.0,T2=100.0,gamma=42.48,
 
 	return spinarray
 	# -----------------------
-def Build_VarDistance_1D_SpinArray(num,regions=[],density=[],dir='z',T1=1000.0,T2=100.0):
+def Build_VarDistance_1D_SpinArray(num,regions=[],density=[],dir='z',
+	T1=1000.0,T2=100.0,device=torch.device('cpu')):
 	'''1d spin array object
 	dir:'x,y,z', in which direction the array is
 	loclim:[loc1,loc2](list)(cm), T1,T2:(ms), num:number of spins
@@ -1981,8 +1983,12 @@ def spinorsim(spinarray,Nt,dt,rf,gr,device=torch.device('cpu'),details=False):
 #################################################################
 # SLR transform
 # --------------------------------------
-def slr_transform_spin(spin,Nt,dt,rf):
-	"""assume g is constant"""
+def slr_transform_spin(spin,Nt,dt,rf,device=torch.device('cpu')):
+	"""
+	SLR transform
+	assume g is constant
+	"""
+	# TODO
 	gamma = spin.gamma
 	#
 	# rf_norm_hist = rf.norm(dim=0) #(1*Nt)
@@ -2008,7 +2014,9 @@ def slr_transform_spin(spin,Nt,dt,rf):
 	# -------------
 # SLR transform along different locations
 # --------------------------------
-def plot_slr_transform_freq_response(B,spin,dt,g,nx=100,dx=0.1,picname = 'pictures/mri_tmp_pic_slr_transform_fft_test.png',save_fig=False):
+def plot_slr_transform_freq_response(B,spin,dt,g,nx=100,dx=0.1,
+	picname = 'pictures/mri_tmp_pic_slr_transform_fft_test.png',save_fig=False,
+	device=torch.device('cpu')):
 	'''nx: number of location for evaluation in one side, dx: distance between two locations (cm)
 	g:mT/m'''
 	gamma = spin.gamma # MHz/T
@@ -2072,7 +2080,7 @@ def test_slr_transform():
 # =================================================================
 # simulator backups and some old versions
 # --------------------------------------------------------
-def blochsim_test(spin, Nt, dt, rf=0, gr=0):
+def blochsim_test(spin, Nt, dt, rf=0, gr=0, device=torch.device('cpu')):
 	"""
 	rf (2*N)(mT), gr (3*N)(mT/m), unit: mT
 	dt: (ms)
@@ -2130,7 +2138,7 @@ def blochsim_test(spin, Nt, dt, rf=0, gr=0):
 
 	# return M, M_hist
 	return M, M_hist
-def blochsim_array_v1(spinarray,Nt,dt,rf,gr):
+def blochsim_array_v1(spinarray,Nt,dt,rf,gr, device=torch.device('cpu')):
 	"""
 	not fully adopt the matrix computation, is slow
 
@@ -2204,7 +2212,7 @@ def blochsim_array_v1(spinarray,Nt,dt,rf,gr):
 	print('->stopped time:',time()-starttime)
 
 	return M, M_hist
-def blochsim_array_v2(spinarray,Nt,dt,rf,gr):
+def blochsim_array_v2(spinarray,Nt,dt,rf,gr, device=torch.device('cpu')):
 	"""
 	Bloch simulation for spin arrays, 
 	rf:(2*N)(mT), gr:(3*N)(mT/m), dt:(ms)
@@ -2277,16 +2285,17 @@ def blochsim_array_v2(spinarray,Nt,dt,rf,gr):
 # More integrated simulation functions
 # ----------------------------------------------------------
 class Signal:
-	def __init__(self,sig_hist=torch.rand(10,device=device),time_hist=None):
+	def __init__(self,sig_hist=torch.rand(10),time_hist=None, device=torch.device('cpu')):
 		# time_hist: (Nt), dt:(ms), sig_hist:(sig_dim*Nt)
 		'''
 		assume: time starts from 0.0
 		'''
+		self.device = device
 		self._set_sig(sig_hist=sig_hist)
 		self._set_time(time_hist=time_hist)
 	def _set_sig(self,sig_hist):
 		# self.time_hist = time_hist
-		self.sig_hist = sig_hist
+		self.sig_hist = sig_hist.to(self.device)
 		if len(sig_hist.shape) == 1:
 			self.sig_dim = 1
 			self.Nt = len(sig_hist) # number of time points
@@ -2296,10 +2305,10 @@ class Signal:
 		return
 	def _set_time(self,time_hist):
 		if time_hist == None:
-			self.time_hist = torch.arange(self.Nt,device=device)
+			self.time_hist = torch.arange(self.Nt,device=self.device)
 		elif len(time_hist) != self.Nt:
 			print('>> Error! time length not equal to signal length')
-			self.time_hist = torch.arange(self.Nt,device=device)
+			self.time_hist = torch.arange(self.Nt,device=self.device)
 		else:
 			self.time_hist = time_hist
 		return
@@ -2329,6 +2338,7 @@ def simulate_signal(cube,pulse_list,spin_batch_size=1e5):
 	'''
 	simulate the total signal of a spin cube
 	'''
+	device = cube.device
 	def update_signal_time(time_hist,dt_prev,newNt,newdt):
 		'''time_hist:(n)'''
 		new_time_hist = torch.arange(newNt,device=device)*newdt
@@ -2349,12 +2359,12 @@ def simulate_signal(cube,pulse_list,spin_batch_size=1e5):
 					# plus 1 to include the time point 0!
 					dt_prev = tmpP.dt
 					# print(sig_hist.shape,time_hist.shape)
-				signal = Signal(sig_hist=sig_hist,time_hist=time_hist)
+				signal = Signal(sig_hist=sig_hist,time_hist=time_hist,device=device)
 			if pnum > 0:
 				M,sig_hist_tmp = blochsim_(cube,tmpP.Nt,tmpP.dt,tmpP.rf,tmpP.gr)
 				cube.Mag = M
 				time_hist_tmp = torch.arange((tmpP.Nt+1),device=device)*tmpP.dt
-				signal_tmp = Signal(sig_hist_tmp,time_hist_tmp)
+				signal_tmp = Signal(sig_hist_tmp,time_hist_tmp,device=device)
 				# used to use this block
 				# sig_hist = torch.cat((sig_hist,sig_hist_tmp[:,1:]),dim=1)
 				# time_hist = update_signal_time(time_hist,dt_prev,tmpP.Nt,tmpP.dt)
@@ -2376,6 +2386,7 @@ def signal_readout(signal):
 
 
 def test_signal():
+	device = torch.device('cpu')
 	# t = torch.arange(10,device=device)
 	t = torch.tensor([0,1.,2,3,5,8])
 	y = torch.rand((2,6),device=device)
@@ -2943,7 +2954,7 @@ def read_data(filename):
 		print('>> fail to load data')
 		return None
 	return data
-def data2pulse(data):
+def data2pulse(data, device=torch.device('cpu')):
 	rf = torch.tensor(data['rf'].tolist(),device=device)
 	gr = torch.tensor(data['gr'].tolist(),device=device)
 	Nt = data['Nt'].item()
@@ -2989,6 +3000,9 @@ def pulse_from_mrphy(mrphy_pulse):
 # ============================================================================
 # ============================================================================
 def test_freeprecession():
+	device = "cuda:0" if torch.cuda.is_available() else "cpu"
+	device = torch.device(device)
+	
 	N = 1000
 	rf = 1.0*torch.zeros((2,N),device=device)
 	gr = torch.zeros((3,N),device=device)
@@ -3022,6 +3036,9 @@ def test2():
 
 	return
 def test3():
+	device = "cuda:0" if torch.cuda.is_available() else "cpu"
+	device = torch.device(device)
+	
 	N = 1000
 	rf = torch.zeros((2,N),device=device)
 	gr = torch.zeros((3,N),device=device)
@@ -3032,6 +3049,9 @@ def test3():
 	print(torch.tensor(x))
 	return
 def test_slr():
+	device = "cuda:0" if torch.cuda.is_available() else "cpu"
+	device = torch.device(device)
+	
 	n = 5
 	loc = torch.rand((3,n),device=device)
 	loc[0,:] = torch.tensor([0.,1.,0.,3.,4.],device=device)
@@ -3523,11 +3543,13 @@ if __name__ == "__main__":
 	MR()
 
 	# choose device for running examples:
-	dev = torch.device('cuda:0')
+	dev = "cuda:0" if torch.cuda.is_available() else "cpu"
+	dev = torch.device(dev)
+	print('>> test using device:',dev)
 	# dev = torch.device('cpu')
 
 	# some basic examples of using this module:
-	# example(device=dev)
+	example(device=dev)
 
 	# example of doing backward of the simulation:
 	example_backward(device=dev)
