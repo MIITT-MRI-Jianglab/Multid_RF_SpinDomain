@@ -17,8 +17,8 @@ My running environment
 
 ## General description
 The basic functions for describing the spin behaviors and simulations including spin-domain simulation are provided in `mri.py`. Other files provided different utilities, and a breif description is as follows.
-- `mri.py`: 
-- `mriopt.py`:
+- `mri.py`: provides definition of basic class, e.g. Spin, SpinArray, Pulse, Signal. It also provides simulation functions with autodifferentiation.
+- `mriopt.py`: provides solver for optimizing the object loss function. 
 
 
 
@@ -31,6 +31,6 @@ Demos
   - Two methods are compared, one is only build forward computation, another is our implementation with both forward and backward function. The backward function is explicitly implemented in Pytorch using auto-differentiation. 
   - The experiment is `EX_simu_compare.py`
   - The comparison of the speed: (1000 time points for RF pulse) ![](https://github.com/MIITT-MRI-Jianglab/MRIPulse/blob/main/EX_results/EX_simu_compare_speed.png)
-- How transverse magnetization rotatae with different spin-domain parameters:
+- How transverse magnetization rotate with different spin-domain parameters:
   - The experiment is `EX_transverse_rotation_illustration.py`. 
   - Considered different value of $\beta^2$ with norm equals 1 produces the rotation in transverse plane. For example, green denotes the initial transverse magnetization, red denotes the rotated magnetization, and blue denotes the computed rotation axis from them. ![](https://github.com/MIITT-MRI-Jianglab/MRIPulse/blob/main/EX_results/EX_transverse_rotation_illustration.png) 
