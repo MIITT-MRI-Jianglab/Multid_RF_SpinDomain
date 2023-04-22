@@ -1,20 +1,26 @@
-# Basic functions and definitions
+# Basic functions and definitions, including simulations
 # author: jiayao
+
+# Acknowledgements:
+# this work has inspired and take reference of: 
+# - https://github.com/tianrluo/AutoDiffPulses
+# - https://github.com/mikgroup/sigpy
+
 
 import torch
 import numpy as np
 import math
-import matplotlib.pyplot as plt
 from time import time
 from scipy.interpolate import interp1d
+from scipy import interpolate
+import warnings
+
+import matplotlib.pyplot as plt
 
 # device = "cuda:0" if torch.cuda.is_available() else "cpu"
 # device = torch.device(device)
 # print('\t>> mri: using device:',device)
 
-
-# some variables for the lab computer
-SAVE_FIG = True
 
 
 # some basic information
@@ -40,6 +46,9 @@ def MR():
 	# ------------
 
 
+
+
+#################################################################################
 # functions for index operation:
 # index are all torch.int64
 def index_intersect(idx1,idx2):
@@ -63,7 +72,19 @@ def index_subtract(idx1,idx2):
 	idx = list(idx)
 	idx = torch.tensor(idx,device=idx1.device,dtype=idx1.dtype)
 	return idx
+#################################################################################
 
+
+
+
+
+
+
+
+
+
+
+###############################################################################
 
 # define rotation matrices
 class RotationMatrix:
@@ -123,11 +144,32 @@ class RotationMatrix:
 		ax.set_xlabel('x')
 		ax.set_ylabel('y')
 		ax.set_zlabel('z')
-		picname = 'pictures/test_rotations.png'
-		print('save fig...'+picname)
+		picname = 'tmppic_test_rotations.png'
+		print('save fig | '+picname)
 		plt.savefig(picname)
 		# plt.show()
 		return
+def test_rotation_matrix():
+	print('\nTest of rotation matrix')
+	R = RotationMatrix()
+	R.example()
+	return
+
+###############################################################################
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 def estimate_rf_mag(angle,T,gamma=42.48):
@@ -177,6 +219,11 @@ class Pulse:
 	def get_duration(self):
 		'''(ms)'''
 		return self.dt*self.Nt
+	def get_kspace(self):
+		'''
+		get excitation kspace (1/cm)
+		'''
+		return
 	def change_dt(self,newdt):
 		'''method changing the time resolution'''
 		Nt = math.floor(((self.Nt-1)*self.dt)/newdt)
@@ -242,6 +289,14 @@ class Pulse:
 
 
 def Build_Pulse(Nt=100,dt=0.1,type='zero',device=torch.device("cpu")):
+	'''functions that build very simple rf pulses
+	
+	input:
+	- Nt
+	- dt
+	- type: 'zero', 'readout_x', 'readout_y', 'readout_z'
+	- device
+	'''
 	if type=='zero':
 		rf = torch.zeros((2,Nt),device=device)
 		gr = torch.zeros((3,Nt),device=device)
@@ -275,7 +330,12 @@ def rf_modulate(pulse,dfreq):
 	'''pulse.rf: (2,Nt)(mT), 
 	dfreq: (Hz), modulate frequency in the rotating frame off from the omega_0'''
 	dev = pulse.device
+
 	# TODO then use this device
+
+	return
+	
+	
 	domega = 2*torch.pi*dfreq # omega = 2*pi*f, 2*pi*Hz = rad/s
 	t = torch.arange(pulse.Nt,device=dev)*pulse.dt*1e-3 # (s)
 	moduler_c = torch.cos(domega*t)
@@ -283,8 +343,14 @@ def rf_modulate(pulse,dfreq):
 	rf = torch.zeros_like(pulse.rf)
 	rf[0,:] = pulse.rf[0,:]*moduler_c
 	rf[1,:] = pulse.rf[0,:]*moduler_i
-	new_pulse = Pulse(rf,pulse.gr,pulse.dt)
+	new_pulse = Pulse(rf,pulse.gr,pulse.dt,device=dev)
 	return new_pulse
+
+
+
+
+###################################################################################
+# define class of Spin and SpinArray
 
 
 # define a spin class
@@ -294,22 +360,42 @@ class Spin:
 	# T1 = 1000.0 # ms
 	# T2 = 100.0 # ms
 	# x,y,z = 0.,0.,0. # (cm)
-	def __init__(self,T1=1000.0,T2=100.0,df=0.0,gamma=42.48,loc=torch.tensor([0.,0.,0.]),
-				mag=torch.tensor([0.,0.,1.]),device=torch.device("cpu")):
-		"""properties:
-			location: x,y,z
-			gamma, 
-			T1, T2, 
-			B0, B1
+	def __init__(self,T1=1000.0,T2=100.0,
+				df=0.0,
+				gamma=42.48,
+				loc=torch.tensor([0.,0.,0.]),
+				mag:torch.tensor=torch.tensor([0.,0.,1.]),
+				B1kappa=1,
+				device=torch.device("cpu")):
+		"""
+		input:
+			T1:
+			T2:
+			df:
+			gamma:
+			mag: (tensor)
+			loc: (tensor)
+		properties:
+			x,y,z: three location parameters
+			T1: 
+			T2: 
+			gamma:
+			df: 
+			kappa: 
 		"""
 		self.device = device
 		self.T1 = T1
 		self.T2 = T2
 		self.df = df # off-resonance, (Hz)
 		self.gamma = gamma # MHz/Tesla
-		# self.loc = torch.tensor([0.,0.,0.],device=device)
+		# self.x = 0
+		# self.y = 0
+		# self.z = 0
+		# self.Mag = torch.tensor([0.,0.,1.],device=self.device)
+		# self.kappa = 1.
 		self.set_position(loc[0],loc[1],loc[2])
 		self.set_Mag(mag)
+		self.set_B1kappa(B1kappa)
 	def set_position(self,x,y,z):
 		self.x = x
 		self.y = y
@@ -331,6 +417,9 @@ class Spin:
 		self.Mag[1] = M[1]
 		self.Mag[2] = M[2]
 		return
+	def set_B1kappa(self,B1kappa):
+		self.kappa = B1kappa
+		return
 	def get_loc(self):
 		p = torch.zeros(3,device=self.device)
 		p[0] = self.x
@@ -339,8 +428,10 @@ class Spin:
 		return p
 	def show_info(self):
 		print('>> Spin:')
-		print('\tlocation(cm):',self.get_loc(),'\n\tdf:',self.df,'Hz')
+		print('\tlocation(cm):',self.get_loc())
 		print('\tT1:',self.T1,'ms, T2:',self.T2,'ms, gamma:',self.gamma,'MHz/Tesla')
+		print('\tdf(Hz):',self.df)
+		print('\tkappa:',self.kappa)
 		print('\tMag:',self.Mag)
 		print('\t'+''.center(20,'-'))
 		return
@@ -348,7 +439,14 @@ class Spin:
 # define a spin array
 # ------------------------------------
 class SpinArray:
-	def __init__(self,loc,T1,T2,gamma=42.48,M=[0.,0.,1.],df=0.0, 
+	def __init__(self,loc,
+		T1,
+		T2,
+		gamma=42.48,
+		M=None,
+		df=0.0,
+		# B1map=None,
+		B1kappa=None,
 		device=torch.device("cpu")):
 		'''
 		basic properties:
@@ -356,51 +454,79 @@ class SpinArray:
 			num: ()
 			T1: (1*num)(tensor)
 			T2: (1*num)(tensor)
-			gamma: (1*num)(tensor)
-			df: (1*num)(tensor)
+			gamma: (1*num)(tensor)(MHz/T)
+			df: (1*num)(tensor)(Hz) off-resonance
+			kappa: (1*num) transmit B1 scaling factor
+			B1map: (1*num) transmit B1 scaling factor (old name)
 			Mag: (3*num)(tensor)
 		'''
 		self.device = device
-		if (loc.shape[1] == len(T1)) & (len(T1)==len(T2)):
-			# the length is match
-			pass
-		else:
-			print('SpinArray: number count is not correct!')
-			return
 		assert loc.shape[1] == len(T1)
 		assert len(T1)==len(T2)
+
+		# if (loc.shape[1] == len(T1)) & (len(T1)==len(T2)):
+		# 	# the length is match
+		# 	pass
+		# else:
+		# 	print('SpinArray: number count is not correct!')
+		# 	return
+		
+		# self.loc = torch.zeros((3,num),device=device)
+		# self.Mag = torch.zeros((3,num),device=device)
+
 		self.loc = loc # (3*num)(cm)
 		self.num = loc.shape[1]
 		self.T1 = T1 # (n)(ms)
 		self.T2 = T2 # (n)(ms)
 		self.gamma = torch.ones(self.num,device=self.device)*gamma # MHz/Tesla
-		# self.Mag = torch.zeros((3,num),device=device)
-		self.set_Mag(M)
-		# self.loc = torch.zeros((3,num),device=device)
+		self.Mag = M if M!=None else torch.tensor([[0.],[0.],[1.]],device=self.device)*torch.ones(self.num,device=self.device)
 		self.df = df*torch.ones(self.num,device=self.device)
-		# wether to view as spin:
+		self.kappa = B1kappa if B1kappa !=None else torch.ones(self.num,device=self.device)
+		# self.B1map = B1map if B1map != None else torch.ones(self.num,device=self.device)
+
+		# wether to view as spin grid:
 		self._as_grid = False
+		self.fov = None # (3)(cm)
+		self.dim = None # (3)
+		self.grid_x = None
+		self.grid_y = None
+		self.grid_z = None
+		self.slice_spin_idx = None
+		# when spins located at 3d grid
+		self.x_neighbor_index = None
+		self.y_neighbor_index = None
+		self.z_neighbor_index = None
 	def set_Mag(self,M): # [TODO]
-		'''M:(1*3)'''
-		if M==None:
+		'''set all the magnetization to be the same
+		
+		M: (1*3) (list)
+		'''
+		# TODO bugs!!!!!!
+		set_fail = True
+		if M!=None:
+			# when M is just a 3d-vector
+			assert len(M) == 3
+			M = np.array([M[0],M[1],M[2]])
+			S = np.linalg.norm(M)
+			S = S.item()
+			if S > 1e-6:
+				self.Mag = torch.zeros((3,self.num),device=self.device)
+				self.Mag[0,:] = M[0]/S
+				self.Mag[1,:] = M[1]/S
+				self.Mag[2,:] = M[2]/S
+				set_fail = False
+		if set_fail:
 			self.Mag = torch.zeros((3,self.num),device=self.device)
 			self.Mag[2,:] = 1.0
-		else:
-			# self.Mag = 1.0*M
-			# when M is just a 3d-vector
-			S = sum(M)
-			self.Mag = torch.zeros((3,self.num),device=self.device)
-			self.Mag[0,:] = M[0]/S
-			self.Mag[1,:] = M[1]/S
-			self.Mag[2,:] = M[2]/S
 		return
-	def _set_gamma(self,gamma):
-		try:
-			if len(gamma) == self.num:
-				self.gamma = gamma
-		except:
-			self.gamma = torch.ones(self.num,device=self.device)*gamma
-		pass
+	# def set_gamma(self,gamma):
+	# 	try:
+	# 		if len(gamma) == self.num:
+	# 			self.gamma = gamma
+	# 	except:
+	# 		self.gamma = torch.ones(self.num,device=self.device)*gamma
+	# 	pass
+	# ------------------------------------------------------------------
 	def set_selected_Mag(self,loc_idx,M):
 		'''M:(3) or (3*n)'''
 		# print(self.Mag[:,loc_idx])
@@ -426,6 +552,59 @@ class SpinArray:
 		else:
 			self.T2[loc_idx] = torch.ones(tmp_num,device=self.device)*T2
 			return
+	# methods that selected spins
+	# -----------------------------------------------------------------
+	def get_index_all(self):
+		'''return all the index'''
+		return torch.arange(self.num,device=self.device)
+	def get_index(self,xlim,ylim,zlim):
+		''' get spins index (cube)
+		input:
+			xlim: [xmin,xmax](cm)
+			ylim: [ymin,ymax](cm)
+			zlim: [zmin,zmax](cm)
+		output:
+			index
+		'''
+		idx_x = (self.loc[0,:]>=xlim[0]) & (self.loc[0,:]<=xlim[1])
+		idx_y = (self.loc[1,:]>=ylim[0]) & (self.loc[1,:]<=ylim[1])
+		idx_z = (self.loc[2,:]>=zlim[0]) & (self.loc[2,:]<=zlim[1])
+		# print(idx_x)
+		idx = idx_x & idx_y
+		idx = idx & idx_z
+		# print(idx)
+		idx = torch.nonzero(idx)
+		idx = idx.reshape(-1)
+		# print(idx)
+		return idx
+	def get_index_circle(self,center=[0.,0.],radius=1.,dir='z'):
+		'''get spins index (cylinder)
+		input:
+			center:(2*)(cm), 
+			radius:(cm)
+		output:
+			index
+		'''
+		dis_squ = (self.loc[0,:]-center[0])**2 + (self.loc[1,:]-center[1])**2
+		idx = dis_squ <= radius**2
+		idx = torch.nonzero(idx)
+		idx = idx.reshape(-1)
+		return idx
+	def get_index_ball(self,center=[0.,0.,0.],radius=1.,):
+		'''get spins index (ball)
+		input:
+			center:(3*)(cm)
+			radius:(cm)
+		output:
+			index
+		'''
+		dis_squ = (self.loc[0,:]-center[0])**2 + (self.loc[1,:]-center[1])**2 + (self.loc[2,:]-center[2])**2
+		idx = dis_squ <= radius**2
+		idx = torch.nonzero(idx)
+		idx = idx.reshape(-1)
+		return idx
+	# following properties considering the object is defined on 3d grid
+	# -----------------------------------------------------------------
 	def _if_as_grid(self):
 		return self._as_grid
 	def set_grid_properties(self,fov,dim,grid_x,grid_y,grid_z,slice_spin_idx):
@@ -445,12 +624,80 @@ class SpinArray:
 		self.grid_y = grid_y
 		self.grid_z = grid_z
 		self.slice_spin_idx = slice_spin_idx # maybe need improve, along z-direction
+	def map_interpolate_fn(self,ref_map,ref_x,ref_y,ref_z):
+		'''
+		interpolate a map to right locations
+			refermap: (nx*ny*nz) (numpy array)
+			ref_x: (numpy array)
+			ref_y: (numpy array)
+			ref_z: (numpy array)
+		output:
+			newmap (x*y*z) (tensor)
+		'''
+		try:
+			# Interpolation function
+			interp_fn = interpolate.RegularGridInterpolator((ref_x,ref_y,ref_z),ref_map)
+			# interpolations:
+			loc = np.array(self.loc.tolist())  # (3*num)
+			print(loc.shape)
+			newmap = interp_fn(loc.T)
+			newmap = torch.tensor(newmap, device=self.device)
+
+			# loc,loc_x,loc_y,loc_z = mri.Build_SpinArray_loc(fov=fov,dim=dim)
+			# loc_x,loc_y,loc_z = loc_x.numpy(),loc_y.numpy(),loc_z.numpy()
+			# # print(max(loc_x),max(loc_y),max(loc_z))
+			# loc = loc.numpy().reshape(3,-1).T
+			# B0map = interp_fn(loc)
+			# B0map = torch.tensor(B0map,device=device).reshape(dim)
+
+			print('>> interpolate map',newmap.shape)
+		except:
+			init_fail = True
+			print('>> interpolation fails !!')
+			newmap = None
+		return newmap
+	def set_B0map(self,B0map):
+		'''
+		set off-resonance map, also df property
+
+		input:
+			B0map: (x*y*z) (Hz)
+		'''
+		if self._if_as_grid():
+			B0map = B0map.view(-1) if B0map != None else None
+			self.df = B0map
+		else:
+			warnings.warn("SpinArray is not defined as 3d grid!")
+		return
+	def set_B1map(self,B1map):
+		'''
+		set B1 map, also kappa property
+		
+		input: 
+			B1map: (x*y*z) (scaling factor)
+		'''
+		if self._if_as_grid():
+			B1map = B1map.view(-1) if B1map != None else None
+			self.B1map = B1map
+			self.kappa = B1map
+		else:
+			warnings.warn("SpinArray is not defined as 3d grid!")
+		return
+	def set_neighbor_index(self,x_neighbor_idx,y_neighbor_idx,z_neighbor_idx):
+		if self._if_as_grid():
+			self.x_neighbor_index = x_neighbor_idx
+			self.y_neighbor_index = y_neighbor_idx
+			self.z_neighbor_index = z_neighbor_idx
+		else:
+			print('spin array not 3D matrix locations!')
+		return
 	def get_T1grid(self):
 		'''return T1 as 3d matrix'''
 		if self._if_as_grid():
 			T1 = self.T1.reshape(self.dim[0],self.dim[1],self.dim[2])
 			return T1
 		else:
+			warnings.warn("SpinArray is not defined as 3d grid!")
 			return None
 	def get_T2grid(self):
 		'''return T2 as 3d matrix'''
@@ -458,6 +705,7 @@ class SpinArray:
 			T2 = self.T2.reshape(self.dim[0],self.dim[1],self.dim[2])
 			return T2
 		else:
+			warnings.warn("SpinArray is not defined as 3d grid!")
 			return None
 	def get_gammagrid(self):
 		'''return gamma as 3d matrix'''
@@ -465,6 +713,7 @@ class SpinArray:
 			gamma = self.gamma.reshape(self.dim[0],self.dim[1],self.dim[2])
 			return gamma
 		else:
+			warnings.warn("SpinArray is not defined as 3d grid!")
 			return None
 	def get_dfgrid(self):
 		'''return gamma as 3d matrix'''
@@ -472,7 +721,10 @@ class SpinArray:
 			df = self.df.reshape(self.dim[0],self.dim[1],self.dim[2])
 			return df
 		else:
+			warnings.warn("SpinArray is not defined as 3d grid!")
 			return None
+	# Methods which new object created:
+	# ---------------------------------------------------------------------
 	def add_spin(self,spin): #[TODO]
 		self._as_grid = False
 		pass
@@ -482,40 +734,12 @@ class SpinArray:
 		T2 = self.T2[index]
 		df = self.df[index]
 		gamma = self.gamma[index]
-		spin = Spin(T1=T1,T2=T2,df=df,gamma=gamma)
+		B1kappa = self.kappa[index]
+		spin = Spin(T1=T1,T2=T2,df=df,gamma=gamma,B1kappa=B1kappa,device=self.device)
 		loc = self.loc[:,index]
 		spin.set_position(loc[0],loc[1],loc[2])
 		spin.set_Mag(self.Mag[:,index])
 		return spin
-	def get_index_all(self):
-		return torch.arange(self.num,device=self.device)
-	def get_index(self,xlim,ylim,zlim):
-		'''xlim: [xmin,xmax](cm), ...'''
-		idx_x = (self.loc[0,:]>=xlim[0]) & (self.loc[0,:]<=xlim[1])
-		idx_y = (self.loc[1,:]>=ylim[0]) & (self.loc[1,:]<=ylim[1])
-		idx_z = (self.loc[2,:]>=zlim[0]) & (self.loc[2,:]<=zlim[1])
-		# print(idx_x)
-		idx = idx_x & idx_y
-		idx = idx & idx_z
-		# print(idx)
-		idx = torch.nonzero(idx)
-		idx = idx.reshape(-1)
-		# print(idx)
-		return idx
-	def get_index_circle(self,center=[0.,0.],radius=1.,dir='z'):
-		'''center:(2*)(cm), radius:(cm)'''
-		dis_squ = (self.loc[0,:]-center[0])**2 + (self.loc[1,:]-center[1])**2
-		idx = dis_squ <= radius**2
-		idx = torch.nonzero(idx)
-		idx = idx.reshape(-1)
-		return idx
-	def get_index_ball(self,center=[0.,0.,0.],radius=1.,):
-		'''center:(3*)(cm), radius:(cm)'''
-		dis_squ = (self.loc[0,:]-center[0])**2 + (self.loc[1,:]-center[1])**2 + (self.loc[2,:]-center[2])**2
-		idx = dis_squ <= radius**2
-		idx = torch.nonzero(idx)
-		idx = idx.reshape(-1)
-		return idx
 	def get_cube(self,xlim,ylim,zlim):
 		'''
 		return a new SpinArray object, by specify the x,y,z limits
@@ -529,11 +753,15 @@ class SpinArray:
 		new_gamma = self.gamma[idx]
 		new_Mag = self.Mag[:,idx]
 		new_df = self.df[idx]
-		new_spinarray = SpinArray(new_loc,new_T1,new_T2,new_gamma,new_Mag,new_df,device=self.device)
+		new_B1kappa = self.kappa[idx]
+		new_spinarray = SpinArray(loc=new_loc, T1=new_T1, T2=new_T2, gamma=new_gamma,
+			M=new_Mag, df=new_df, B1kappa=new_B1kappa, device=self.device)
 		return new_spinarray
-	def get_spins(self,spin_idx):
+	def get_spins(self,spin_idx:torch.tensor):
 		'''
 		specify index, and get spins as a new SpinArray
+		input:
+			spin_idx: (tensor)
 		'''
 		new_loc = self.loc[:,spin_idx]
 		new_T1 = self.T1[spin_idx]
@@ -541,11 +769,15 @@ class SpinArray:
 		new_gamma = self.gamma[spin_idx]
 		new_Mag = self.Mag[:,spin_idx]
 		new_df = self.df[spin_idx]
-		new_spinarray = SpinArray(new_loc,new_T1,new_T2,new_gamma,new_Mag,new_df,device=self.device)
+		new_B1kappa = self.kappa[spin_idx]
+		new_spinarray = SpinArray(loc=new_loc,T1=new_T1,T2=new_T2,gamma=new_gamma,
+			M=new_Mag,df=new_df,B1kappa=new_B1kappa,device=self.device)
 		return new_spinarray
-	def delete_spins(self,spin_idx):
+	def delete_spins(self,spin_idx:torch.tensor):
 		'''
 		return a new spinarray object, with selected spins deleted
+		input:
+			spin_idx: (tensor)
 		'''
 		idx = self.get_index_all()
 		idx = index_subtract(idx,spin_idx)
@@ -555,29 +787,43 @@ class SpinArray:
 		new_gamma = self.gamma[idx]
 		new_Mag = self.Mag[:,idx]
 		new_df = self.df[idx]
-		new_spinarray = SpinArray(new_loc,new_T1,new_T2,new_gamma,new_Mag,new_df,device=self.device)
-		return new_spinarray	
+		new_B1kappa = self.kappa[idx]
+		new_spinarray = SpinArray(loc=new_loc,T1=new_T1,T2=new_T2,gamma=new_gamma,
+			M=new_Mag,df=new_df,B1kappa=new_B1kappa,device=self.device)
+		return new_spinarray
+	def plot_cube_with(self,parameters):
+		'''
+		plot function, display slice-by-slice
+		'''
+		return
+	# Method display self info
+	# --------------------------------------------------------
 	def show_info(self):
 		print('>> '+'SpinArray:')
-		print('\tnum:',self.num,', loc(cm):',self.loc.shape,', df(Hz):',self.df.shape)
-		print('\tT1(ms):',self.T1.shape,', {} - {}'.format(self.T1.min().item(),self.T1.max().item()))
-		print('\tT2(ms):',self.T2.shape,', {} - {}'.format(self.T2.min().item(),self.T2.max().item()))
+		print('\tnum of spins:',self.num)
+		print('\tloc(cm): {:.2f}~{:.2f}, {:.2f}~{:.2f}, {:.2f}~{:.2f}'.format(self.loc[0,:].min(),self.loc[0,:].max(),
+												self.loc[1,:].min(),self.loc[1,:].max(),
+												self.loc[2,:].min(),self.loc[2,:].max()))
+		print('\tT1(ms): {}~{}'.format(self.T1.min().item(),self.T1.max().item()))
+		print('\tT2(ms): {}~{}'.format(self.T2.min().item(),self.T2.max().item()))
 		# print('\tT1(ms):',self.T1.shape,',',self.T1.view(-1)[0])
 		# print('\tT2(ms):',self.T2.shape,',',self.T2.view(-1)[0])
-		print('\tgamma(MHz/T):',self.gamma.shape,',',self.gamma[0])
-		print('\tMag:',self.Mag.shape,',',self.Mag[:,0])
+		print('\tgamma(MHz/T): mean={:.3f}, var={:.3f}, \t[#{}]'.format(self.gamma.mean(),self.gamma.var(),len(self.gamma)))
+		print('\tMag:\t',self.Mag.shape,',',self.Mag[:,0].tolist())
+		print('\tdf(Hz): \tmean={:.4f}, var={:.4f}, {}~{}'.format(self.df.mean(),self.df.var(),self.df.min(),self.df.max()))
+		print('\tkappa(unit 1): \tmean={:.4f}, var={:.4f}, {}~{}'.format(self.kappa.mean(),self.kappa.var(),self.kappa.min(),self.kappa.max()))
 		# print('\tdf:',self.df)
 		# print('\tMag:',self.Mag)
-		print('\tgrid shape:',self._if_as_grid())
+		print('\t>>\tas grid shape:',self._if_as_grid())
 		if self._if_as_grid():
-			print('\t+> fov:',self.fov,', dim:',self.dim)
+			print('\t\tFOV(cm):',self.fov,', dim:',self.dim)
 		print('\t'+''.center(20,'-'))
 		return
 
 # class SpinCube(SpinArray):
 # 	def __init__(self, loc, T1, T2, gamma=42.48, M=None, df=0):
 # 		super().__init__(loc, T1, T2, gamma, M, df)
-class SpinArrayGrid(SpinArray):
+'''class SpinArrayGrid(SpinArray):
 	def __init__(self, loc, T1, T2, gamma=42.48, M=None, df=0):
 		super().__init__(loc, T1, T2, gamma, M, df)
 	def show_info(self):
@@ -591,9 +837,15 @@ class SpinArrayGrid(SpinArray):
 		# print('\tMag:',self.Mag)
 		print('\t'+''.center(20,'-'))
 		return
+'''
 
 # function: combine spinarrays
 def Combine_SpinArray(spinarray1,spinarray2):
+	
+	# TODO: to consider grid property and object device
+
+	return
+
 	loc = torch.cat((spinarray1.loc,spinarray2.loc),dim=1)
 	T1 = torch.cat((spinarray1.T1,spinarray2.T1))
 	T2 = torch.cat((spinarray1.T2,spinarray2.T2))
@@ -607,10 +859,61 @@ def Combine_SpinArray(spinarray1,spinarray2):
 
 # function: build a spin array
 # ---------------------------------------------------
-def Build_SpinArray(fov=[4,4,4],dim=[3,3,3],T1=1000.0,T2=100.0,gamma=42.48, 
+def Build_SpinArray_loc(fov=[4,4,4],dim=[3,3,3],
 	device=torch.device('cpu')):
 	'''
-	build SpinArray which is (x*y*z) matrix
+	only return the location matrix, (3*x*y*z)
+
+	Current seems superfluous
+	'''
+
+	return
+	num = dim[0]*dim[1]*dim[2]
+	def linespace(L,n):
+		if n == 1:
+			p = torch.tensor([0.],device=device)
+		elif n%2 == 1:
+			p = torch.linspace(-L/2,L/2,n,device=device)
+		else:
+			p = torch.linspace(-L/2,L/2,n+1,device=device)[1:]
+		return p
+	# if False: # a test
+	# 	for i in range(4):
+	# 		print(linespace(6,i))
+	# 
+	x = linespace(fov[0],dim[0])
+	y = linespace(fov[1],dim[1])
+	z = linespace(fov[2],dim[2])
+	loc = torch.zeros((3,dim[0],dim[1],dim[2]),device=device)
+	for i in range(dim[0]):
+		loc[0,i,:,:] = x[i]
+	for i in range(dim[1]):
+		loc[1,:,i,:] = y[i]
+	for i in range(dim[2]):
+		loc[2,:,:,i] = z[i]
+	return loc,x,y,z
+def Build_SpinArray(fov=[4,4,4],
+	dim=[3,3,3],
+	T1=1000.0,T2=100.0,
+	gamma=42.48,
+	B1map=None,
+	B0map=None,
+	device=torch.device('cpu')):
+	'''
+	build SpinArray which is (x*y*z) matrix, actually the SpinArray object
+	initial all Mag=[0,0,1]
+
+	Input:
+		fov: (3*) (list)
+		dim: (3*) (list)
+		T1: (1)(tensor)
+		T2: (1)(tensor)
+		gamma: (1)(tensor)(MHz/T)
+		B0map: (x*y*z)(Hz) off-resonance (df)
+		B1map: (x*y*z) transmit B1 scaling factor (kappa)
+	
+	B1map should also match the matrix size (x*y*z) (factor)
+	B0map should also match the matrix size (x*y*z) (Hz)
 	'''
 	# fov = [4,4,4] # cm
 	# dim = [2,2,3] # numbers
@@ -623,55 +926,57 @@ def Build_SpinArray(fov=[4,4,4],dim=[3,3,3],T1=1000.0,T2=100.0,gamma=42.48,
 		else:
 			p = torch.linspace(-L/2,L/2,n+1,device=device)[1:]
 		return p
-	if False: # a test
-		for i in range(4):
-			print(linespace(6,i))
 	# 
 	x = linespace(fov[0],dim[0])
 	y = linespace(fov[1],dim[1])
 	z = linespace(fov[2],dim[2])
-	# print(x)
-	# print(y)
-	# print(z)
-	if False: # this way is slower
-		loc = torch.zeros((3,num),device=device)
-		# loc_grid = torch.zeros((dim[0],dim[1],dim[2]),device=device)
-		i = 0
-		for ix in range(dim[0]):
-			# slice = np.zeros((dim[0],dim[1]),dtype=int)
-			# slice = torch.zeros(dim[0],dim[1],device=device,dtype=torch.long)
-			for iy in range(dim[1]):
-				for iz in range(dim[2]):	
-					loc[0,i] = x[ix]
-					loc[1,i] = y[iy]
-					loc[2,i] = z[iz]
-					# slice[ix,iy] = i
-					i += 1
-			# slice = slice.reshape(-1)
-			# slice_spin_idx.append(slice)
-	if True: # a faster way
-		loc = torch.zeros((3,dim[0],dim[1],dim[2]),device=device)
-		for i in range(dim[0]):
-			loc[0,i,:,:] = x[i]
-		for i in range(dim[1]):
-			loc[1,:,i,:] = y[i]
-		for i in range(dim[2]):
-			loc[2,:,:,i] = z[i]
-		loc = loc.reshape(3,-1)
+
+	# if False: # this way is slower
+	# 	loc = torch.zeros((3,num),device=device)
+	# 	# loc_grid = torch.zeros((dim[0],dim[1],dim[2]),device=device)
+	# 	i = 0
+	# 	for ix in range(dim[0]):
+	# 		# slice = np.zeros((dim[0],dim[1]),dtype=int)
+	# 		# slice = torch.zeros(dim[0],dim[1],device=device,dtype=torch.long)
+	# 		for iy in range(dim[1]):
+	# 			for iz in range(dim[2]):	
+	# 				loc[0,i] = x[ix]
+	# 				loc[1,i] = y[iy]
+	# 				loc[2,i] = z[iz]
+	# 				# slice[ix,iy] = i
+	# 				i += 1
+	# 		# slice = slice.reshape(-1)
+	# 		# slice_spin_idx.append(slice)
+	
+	# a faster way
+	loc = torch.zeros((3,dim[0],dim[1],dim[2]),device=device)
+	for i in range(dim[0]):
+		loc[0,i,:,:] = x[i]
+	for i in range(dim[1]):
+		loc[1,:,i,:] = y[i]
+	for i in range(dim[2]):
+		loc[2,:,:,i] = z[i]
+	loc = loc.reshape(3,-1)
+
+	# additional info for 3d grid property
 	slice_spin_idx = []
 	index = np.arange(num).reshape(dim[0],dim[1],dim[2])
 	for iz in range(dim[2]):
 		slice_spin_idx.append(index[:,:,iz].reshape(-1))
 	# print(loc)
 
+	# Build SpinArray object, set properties
 	T1 = torch.ones(num,device=device)*T1 #1470 # ms
 	T2 = torch.ones(num,device=device)*T2 #70 # ms
-	# df = torch.ones(num,device=device)*0.0 # Hz
-	spinarray = SpinArray(loc=loc,T1=T1,T2=T2,gamma=gamma,device=device)
+	B0map = B0map.view(-1) if B0map != None else torch.zeros(num,device=device)
+	B1map = B1map.view(-1) if B1map != None else None
+	spinarray = SpinArray(loc=loc,T1=T1,T2=T2,gamma=gamma,df=B0map,B1kappa=B1map,device=device)
+	# 
 	spinarray.set_grid_properties(fov,dim,x,y,z,slice_spin_idx)
-
+	
 	return spinarray
 	# -----------------------
+
 def Build_VarDistance_1D_SpinArray(num,regions=[],density=[],dir='z',
 	T1=1000.0,T2=100.0,device=torch.device('cpu')):
 	'''1d spin array object
@@ -703,8 +1008,10 @@ def Build_VarDistance_1D_SpinArray(num,regions=[],density=[],dir='z',
 		loc[2,:] = loc_select
 	spinarray = SpinArray(loc,T1=T1,T2=T2)
 	return spinarray
-
+# ===============================================================================
+# test
 def test_buildobj():
+	print('test build 1d spin array, varational spin density')
 	cube = Build_VarDistance_1D_SpinArray(num=40,regions=[-4,-1,0,4],density=[2,10,1])
 	cube.show_info()
 	# plt.figure()
@@ -713,7 +1020,7 @@ def test_buildobj():
 	# y = np.ones(cube.num)
 	# plt.scatter(loc,y)
 	# plt.savefig('pictures/mri_tmp_pic.png')
-	plot_distribution(cube.loc[2,:],save_fig=True)
+	plot_distribution(cube.loc[2,:],savefig=True)
 	return
 
 
@@ -734,8 +1041,10 @@ For spin array:
 def blochsim_spin(spin, Nt, dt, rf=0, gr=0, device=torch.device('cpu')):
 	"""
 	Bloch simulation for one spin
-	rf (2*N)(mT), gr (3*N)(mT/m), unit: mT
-	dt: (ms)
+	input:
+	- rf (2*N)(mT), gr (3*N)(mT/m), unit: mT
+	- dt: (ms)
+	
 	"""
 	dt = torch.tensor(dt,device=device)
 
@@ -752,7 +1061,7 @@ def blochsim_spin(spin, Nt, dt, rf=0, gr=0, device=torch.device('cpu')):
 	e = torch.tensor([0.,0.,1-E1],device=device)
 
 	Beff_hist = torch.zeros((3,Nt),device=device)*1.0
-	Beff_hist[0:2,:] = rf # mT
+	Beff_hist[0:2,:] = rf*spin.kappa # mT
 	Beff_hist[2,:] = spin.get_loc()@gr*1e-2 + spin.df/spin.gamma*1e-3 # mT/cm*cm = mT, Hz/(MHz/T)=1/1e6*1e3mT=1e-3*mT
 	# print('Beff_hist:',Beff_hist.shape)
 
@@ -789,10 +1098,13 @@ def blochsim_spin(spin, Nt, dt, rf=0, gr=0, device=torch.device('cpu')):
 		# 	print(M.norm())
 
 	return M, M_hist
+
 # compute the effective B at each time, for every spin
 # ------------------------------------------------------
 def spinarray_Beffhist(spinarray,Nt,dt,rf,gr,device=torch.device('cpu')):
-	'''loc:(3*num)(cm), gr:(3*Nt)(mT/m), Beff_hist:(3*num*Nt)(mT)
+	'''
+	Get effective B-field for each spin at every timepoint.
+	loc:(3*num)(cm), gr:(3*Nt)(mT/m), Beff_hist:(3*num*Nt)(mT)
 	'''
 	# starttime = time()
 	num = spinarray.num
@@ -805,13 +1117,19 @@ def spinarray_Beffhist(spinarray,Nt,dt,rf,gr,device=torch.device('cpu')):
 	# print(gr.requires_grad)
 	# print(gr[:,:8])
 
-	# calculate the Beff:
+	# Test:
+	# print('rf',rf[:,:5])
+	# print('B1',spinarray.B1map[:2])
+
+	# Calculate the Beff:
 	offBeff = spinarray.df/spinarray.gamma*1e-3 #(1*num)
 	offBeff = offBeff.reshape(num,1)
 	# gradB = spinarray.loc.T@gr*1e-2
 	Beff_hist = torch.zeros((3,num,Nt),device=device)*1.0
-	Beff_hist[:2,:,:] = Beff_hist[:2,:,:] + rf.reshape(2,1,Nt)
+	Beff_hist[:2,:,:] = Beff_hist[:2,:,:] + rf.reshape(2,1,Nt) # if no B1 map
+	Beff_hist[:2,:,:] = Beff_hist[:2,:,:]*spinarray.kappa.reshape(1,num,1) # consider with the B1 transmit map
 	Beff_hist[2,:,:] = Beff_hist[2,:,:] + spinarray.loc.T@gr*1e-2 + offBeff
+	#
 	# print(spinarray.loc)
 	# print(gradB)
 	# loss = torch.sum(Beff_hist**2)
@@ -826,8 +1144,13 @@ def spinarray_Beffhist(spinarray,Nt,dt,rf,gr,device=torch.device('cpu')):
 	# phi_hist = -(dt*2*torch.pi*spinarray.gamma)*Beff_norm_hist.T #(Nt*num)
 	# phi_hist = phi_hist.T #(num*Nt)
 
+	# Test of B1 map inclusion:
+	# print('Beff',Beff_hist[:,0,:5])
+	# print('Beff',Beff_hist[:,1,:5])
+
 	return Beff_hist
 	# ---------------
+
 # Bloch simulation for spinarray:
 # ----------------------------------------------------
 class BlochSim_Array(torch.autograd.Function):
@@ -1007,12 +1330,17 @@ def blochsim(spinarray,Nt,dt,rf,gr,device=torch.device('cpu'),details=False):
 	# compute the simulation
 	M = blochsim_array(spinarray,Nt,dt,Beff_unit_hist,phi_hist,device)
 	return M
-# Bloch simulation, only simulation, no cunstom backward
+
+
+# Bloch simulation, only simulation, no custom backward
 # ----------------------------------
 def blochsim_(spinarray,Nt,dt,rf,gr,device=torch.device('cpu')):
 	"""
 	Bloch simulation for spin arrays
 	rf:(2*N)(mT), gr:(3*N)(mT/m), dt:(ms)
+	
+	ouput:
+		M, M_total_hist
 	"""
 	# starttime = time()
 	num = spinarray.num
@@ -1035,6 +1363,7 @@ def blochsim_(spinarray,Nt,dt,rf,gr,device=torch.device('cpu')):
 	offBeff = offBeff.reshape(num,1)
 	Beff_hist = torch.zeros((3,num,Nt),device=device)*1.0
 	Beff_hist[:2,:,:] = Beff_hist[:2,:,:] + rf.reshape(2,1,Nt)
+	Beff_hist[:2,:,:] = Beff_hist[:2,:,:]*spinarray.kappa.reshape(1,num,1) # consider with the B1 transmit map
 	Beff_hist[2,:,:] = Beff_hist[2,:,:] + spinarray.loc.T@gr*1e-2 + offBeff
 
 	# normalization:
@@ -1070,7 +1399,7 @@ def blochsim_(spinarray,Nt,dt,rf,gr,device=torch.device('cpu')):
 
 
 
-####################################################################
+##################################################################################
 '''
 Functions for one spin:
 - slrsim_spin: for one spin object
@@ -1079,6 +1408,8 @@ Functions for spin array:
 - slrsim_c: (complex number implementation)(no backward)
 - slrsim_: (real number implementation)(no explicit backward)
 - slrsim: (real number implementation)(abandoned, backward not implemented!!! -> Goto spinorsim!!)
+
+Not used in final applications!
 '''
 # Shinnar-Le Roux relation simulation
 # -------------------------------
@@ -1417,7 +1748,7 @@ def slrsim_(spinarray,Nt,dt,rf,gr,device=torch.device('cpu')):
 
 
 
-#################################################################
+############################################################################################
 '''Spin-domain simulation
 For one spin:
 - spinorsim_spin: (complex number implementation)(no backward)
@@ -1442,7 +1773,7 @@ def spinorsim_spin(spin,Nt,dt,rf,gr,device=torch.device('cpu'),details=False):
 	# compute for nutation:
 	rf_norm = rf.norm(dim=0)
 	rf_unit = torch.nn.functional.normalize(rf,dim=0)
-	nut_phi = -2*torch.pi*spin.gamma*rf_norm*dt
+	nut_phi = -2*torch.pi*spin.gamma*rf_norm*dt*spin.kappa
 	nut_aj_hist = torch.cos(nut_phi/2)
 	nut_bj_hist = -(torch.tensor([0.+1.0j],device=device)*rf_unit[0]-rf_unit[1])*torch.sin(nut_phi/2)
 
@@ -1496,7 +1827,7 @@ def spinorsim_c(spinarray,Nt,dt,rf,gr,device=torch.device('cpu'),details=False):
 	# compute for nutation:
 	rf_norm_hist = rf.norm(dim=0) #(Nt)
 	rf_unit_hist = torch.nn.functional.normalize(rf,dim=0) #(2*Nt)
-	nut_phi_hist = -dt*2*torch.pi*torch.outer(spinarray.gamma, rf_norm_hist) #(num*Nt)
+	# nut_phi_hist = -dt*2*torch.pi*torch.outer(spinarray.gamma, rf_norm_hist) #(num*Nt)
 	# nut_aj_hist = torch.cos(nut_phi/2)
 	# nut_bj_hist = -(torch.tensor([0.+1.0j],device=device)*rf_unit[0]-rf_unit[1])*torch.sin(nut_phi/2)
 	# print(nut_phi_hist.shape)
@@ -1519,7 +1850,7 @@ def spinorsim_c(spinarray,Nt,dt,rf,gr,device=torch.device('cpu'),details=False):
 
 		# nutation period:
 		# nut_phi = nut_phi_hist[:,t]
-		nut_phi = -dt*2*torch.pi*spinarray.gamma*rf_norm_hist[t]
+		nut_phi = -dt*2*torch.pi*spinarray.gamma*rf_norm_hist[t]*spinarray.kappa
 		aj = torch.cos(nut_phi/2) #(num)
 		bj = -(torch.tensor([0.+1.0j],device=device)*rf_unit_hist[0,t] - rf_unit_hist[1,t])*torch.sin(nut_phi/2) #(num)
 		ahist[:,t+1] = aj*atmp - (bj.conj())*btmp
@@ -1565,6 +1896,7 @@ def spinorsim_2(spinarray,Nt,dt,rf,gr,device=torch.device('cpu'),details=False):
 	rf_norm_hist = rf.norm(dim=0) #(Nt)
 	rf_unit_hist = torch.nn.functional.normalize(rf,dim=0) #(2*Nt)
 	nut_phi_hist = -dt*2*torch.pi*torch.outer(spinarray.gamma, rf_norm_hist) #(num*Nt)
+	# nut_phi_hist = spinarray.B1map.reshape(-1,1)*nut_phi_hist
 	# nut_aj_hist = torch.cos(nut_phi/2)
 	# nut_bj_hist = -(torch.tensor([0.+1.0j],device=device)*rf_unit[0]-rf_unit[1])*torch.sin(nut_phi/2)
 	# print(nut_phi_hist.shape)
@@ -1594,7 +1926,7 @@ def spinorsim_2(spinarray,Nt,dt,rf,gr,device=torch.device('cpu'),details=False):
 
 		# ----nutation period:
 		# nut_phi = nut_phi_hist[:,t]
-		nut_phi = -dt*2*torch.pi*spinarray.gamma*rf_norm_hist[t]
+		nut_phi = -dt*2*torch.pi*spinarray.gamma*rf_norm_hist[t]*spinarray.kappa
 
 		# aj = torch.cos(nut_phi/2) #(num)
 		# bj = -(torch.tensor([0.+1.0j],device=device)*rf_unit_hist[0,t] - rf_unit_hist[1,t])*torch.sin(nut_phi/2) #(num)
@@ -1657,6 +1989,7 @@ def spinorsim_(spinarray,Nt,dt,rf,gr,device=torch.device('cpu'),details=False):
 	rf_norm_hist = rf.norm(dim=0) #(Nt)
 	rf_unit_hist = torch.nn.functional.normalize(rf,dim=0) #(2*Nt)
 	nut_phi_hist = -dt*2*torch.pi*torch.outer(spinarray.gamma, rf_norm_hist) #(num*Nt)
+	nut_phi_hist = spinarray.kappa.reshape(-1,1)*nut_phi_hist
 	nut_aj_real_hist = torch.cos(nut_phi_hist/2)
 	nut_bj_real_hist = rf_unit_hist[1,:]*torch.sin(nut_phi_hist/2) #(num*Nt)
 	nut_bj_imag_hist = -rf_unit_hist[0,:]*torch.sin(nut_phi_hist/2)
@@ -1730,7 +2063,8 @@ def spinorsim_(spinarray,Nt,dt,rf,gr,device=torch.device('cpu'),details=False):
 
 class Spinorsim_SpinArray(torch.autograd.Function):
 	@staticmethod
-	def forward(ctx,spinarray,Nt,dt,pre_aj_real_hist,pre_aj_imag_hist,nut_aj_real_hist,
+	def forward(ctx,spinarray,Nt,dt,
+			pre_aj_real_hist,pre_aj_imag_hist,nut_aj_real_hist,
 			nut_bj_real_hist,nut_bj_imag_hist,device):
 		num = spinarray.num
 
@@ -1952,6 +2286,7 @@ def spinorsim(spinarray,Nt,dt,rf,gr,device=torch.device('cpu'),details=False):
 	rf_norm_hist = rf.norm(dim=0) #(Nt)
 	rf_unit_hist = torch.nn.functional.normalize(rf,dim=0) #(2*Nt)
 	nut_phi_hist = -dt*2*torch.pi*torch.outer(spinarray.gamma, rf_norm_hist) #(num*Nt)
+	nut_phi_hist = spinarray.kappa.reshape(-1,1)*nut_phi_hist
 	nut_aj_real_hist = torch.cos(nut_phi_hist/2)
 	nut_bj_real_hist = rf_unit_hist[1,:]*torch.sin(nut_phi_hist/2) #(num*Nt)
 	nut_bj_imag_hist = -rf_unit_hist[0,:]*torch.sin(nut_phi_hist/2)
@@ -1980,7 +2315,20 @@ def spinorsim(spinarray,Nt,dt,rf,gr,device=torch.device('cpu'),details=False):
 
 
 
+
+
+
+
+
+
+
+
+
+
 #################################################################
+'''
+SLR transformation, while this part need further debugging
+'''
 # SLR transform
 # --------------------------------------
 def slr_transform_spin(spin,Nt,dt,rf,device=torch.device('cpu')):
@@ -2041,7 +2389,7 @@ def plot_slr_transform_freq_response(B,spin,dt,g,nx=100,dx=0.1,
 	# -------
 # ------------------------------------------------------
 # -----------------------------------------------------
-def test_slr_transform():
+def test_slr_transform(savefig=False):
 	spin = Spin()
 	spin.show_info()
 	pulse = example_pulse()
@@ -2067,7 +2415,7 @@ def test_slr_transform():
 		else:
 			plt.show()
 	if True:
-		plot_slr_transform_freq_response(B,spin,dt,g=0.5,save_fig=SAVE_FIG)
+		plot_slr_transform_freq_response(B,spin,dt,g=0.5,save_fig=savefig)
 	return
 
 
@@ -2281,6 +2629,12 @@ def blochsim_array_v2(spinarray,Nt,dt,rf,gr, device=torch.device('cpu')):
 
 
 
+
+
+
+
+
+##########################################################################################
 # ------------------------------------------------------------
 # More integrated simulation functions
 # ----------------------------------------------------------
@@ -2337,6 +2691,11 @@ def signal_concatenate(signal1,signal2,overlap=True):
 def simulate_signal(cube,pulse_list,spin_batch_size=1e5):
 	'''
 	simulate the total signal of a spin cube
+
+	input
+	- cube: (SpinArray)
+	- pulse_list: list of Pulse objects
+	- spin_batch_size: TODO, to address the problem of memory needs
 	'''
 	device = cube.device
 	def update_signal_time(time_hist,dt_prev,newNt,newdt):
@@ -2374,6 +2733,8 @@ def simulate_signal(cube,pulse_list,spin_batch_size=1e5):
 				signal = signal_concatenate(signal,signal_tmp,overlap=True)
 			pnum = pnum+1
 	else: # when the cube is very large
+		# TODO
+		warnings.warn('the number of spins in simulation maybe too large!')
 		pass
 	return M,signal
 
@@ -2383,7 +2744,6 @@ def signal_readout(signal):
 	adc readout out of the signal
 	'''
 	return
-
 
 def test_signal():
 	device = torch.device('cpu')
@@ -2397,12 +2757,6 @@ def test_signal():
 	new_sig = signal_concatenate(sig,sig,overlap=False)
 	new_sig.show_info()
 	print(new_sig.time_hist)
-
-
-
-
-
-
 
 # ------------------------------------------------------------------
 # some dependent functions
@@ -2426,316 +2780,42 @@ def get_transverse_phase(M):
 	phase = trans_M_c.angle()
 	return phase
 
+######################################################################################
 
 
+
+
+
+
+
+
+
+
+
+
+
+# =========================================================================
 # ---------------------------------------------------------------
-# plot function
+# plot functions
 # ----------------------------------
-def plot_pulse(rf,gr,dt,picname='pictures/mri_tmp_pic_pulse.png',save_fig=False):
+# =========================================================================
+def check_savefig(savefig,picname):
+	if savefig:
+		print('save fig ... | '+picname)
+		plt.savefig(picname)
+	else:
+		plt.show()
+	return
+# ==========================================================================
+def plot_images(imagelist,valuerange=None,title='',picname='tmppic.png',
+		savefig=False):
+	'''input: 
+		imagelist: list of image (numpyarray)
+		valuerange: 
+		title:
+		picname:
+		savefig: wether to save figure
 	'''
-	rf:(2*Nt)(mT/cm), gr:(3*Nt)(mT/m), dt:(ms)
-	'''
-	N = rf.shape[1]
-	rf = np.array(rf.tolist())
-	gr = np.array(gr.tolist())
-	time = np.arange(N)*dt
-	fig, ax = plt.subplots(2,figsize=(10,5))
-	# fig.suptitle('')
-	ax[0].plot(time,rf[0,:],label='rf real',lw=1)
-	ax[0].plot(time,rf[1,:],label='rf imag',lw=1)
-	ax[1].plot(time,gr[0,:],label='gr,x',lw=1)
-	ax[1].plot(time,gr[1,:],label='gr,y',lw=1)
-	ax[1].plot(time,gr[2,:],label='gr,z',lw=1)
-	ax[0].set_ylabel('mT')
-	ax[1].set_ylabel('mT/m')
-	plt.xlabel('time(ms)')
-	ax[0].legend()
-	ax[1].legend()
-	if save_fig:
-		print('save fig...'+picname)
-		plt.savefig(picname)
-	else:
-		plt.show()
-	return
-def plot_pulses(pulse_list,picname='pictures/mri_tmp_pic_pulse.png',save_fig=False):
-	'''
-	'''
-	fig, ax = plt.subplots(2,figsize=(10,5))
-	T = 0
-	for pulse in pulse_list:
-		rf,gr,dt = pulse.rf,pulse.gr,pulse.dt
-		dur = pulse.get_duration()
-		# 
-		rf = np.array(rf.tolist())
-		gr = np.array(gr.tolist())
-		N = rf.shape[1]
-		time = np.arange(N)*dt + T
-		ax[0].plot(time,rf[0,:],label='rf real',lw=1,color='blue')
-		ax[0].plot(time,rf[1,:],label='rf imag',lw=1,color='red')
-		ax[1].plot(time,gr[0,:],label='gr,x',lw=1,color='red')
-		ax[1].plot(time,gr[1,:],label='gr,y',lw=1,color='green')
-		ax[1].plot(time,gr[2,:],label='gr,z',lw=1,color='blue')
-		plt.xlabel('time(ms)')
-		T = T+dur
-	if save_fig:
-		print('save fig...'+picname)
-		plt.savefig(picname)
-	else:
-		plt.show()
-	return
-def plot_magnetization(M_hist, dt, picname='pictures/mri_tmp_pic_mag.png',save_fig=False):
-	"""
-	how magnetization changes with time
-	M_hist:(3*Nt), dt:(ms)
-	"""
-	N = M_hist.shape[1]
-	M = np.array(M_hist.tolist())
-	Mxy = np.sqrt(M[0,:]**2+M[1,:]**2)
-	time = np.arange(N)*dt
-	plt.figure()
-	plt.plot(time,M[0,:],label='x')
-	plt.plot(time,M[1,:],label='y')
-	plt.plot(time,Mxy,label=r'$|M_{xy}|$',ls='--',alpha=0.8)
-	plt.plot(time,M[2,:],label='z')
-	plt.legend()
-	plt.xlabel('time(ms)')
-	if save_fig:
-		print('save fig...'+picname)
-		plt.savefig(picname)
-	else:
-		plt.show()
-	return
-def plot_pulse_and_magnetization(rf, gr, M_hist, dt, picname='pictures/mri_tmp_pic_pulse_and_mag.png',save_fig=False):
-	"""
-	M_hist:(3*Nt), rf:(2*Nt)(mT/cm), gr:(3*Nt)(mT/m), dt:(ms)
-	"""
-	N = rf.shape[1]
-	rf = np.array(rf.tolist())
-	gr = np.array(gr.tolist())
-	time = np.arange(N)*dt
-	fig, ax = plt.subplots(3)
-	# fig.suptitle('')
-	ax[0].plot(time,rf[0,:],label='rf real')
-	ax[0].plot(time,rf[1,:],label='rf imag')
-	ax[1].plot(time,gr[0,:],label='gr,x')
-	ax[1].plot(time,gr[1,:],label='gr,y')
-	ax[1].plot(time,gr[2,:],label='gr,z')
-	N = M_hist.shape[1]
-	M = np.array(M_hist.tolist())
-	time = np.arange(N)*dt
-	ax[2].plot(time,M[0,:],label='x')
-	ax[2].plot(time,M[1,:],label='y')
-	ax[2].plot(time,M[2,:],label='z')
-	ax[0].set_ylabel('mT')
-	ax[1].set_ylabel('mT/m')
-	ax[2].set_ylabel('Magnetization')
-	plt.xlabel('time(ms)')
-	ax[0].legend()
-	ax[1].legend()
-	ax[2].legend()
-	if save_fig:
-		print('save fig...'+picname)
-		plt.savefig(picname)
-	else:
-		plt.show()
-	return
-def plot_magnetization_3d_rotation(M_hist,dt,picname='pictures/mri_tmp_pic_spin_mag_3d_rotation.png',save_fig=False):
-	"""
-	plot of how magnetization changes in 3D
-	"""
-	M = np.array(M_hist.tolist())
-	ax = plt.figure().add_subplot(projection='3d')
-	ax.plot(M[0,:],M[1,:],M[2,:],label='magnetization')
-	ax.plot((0,M[0,0]),(0,M[1,0]),(0,M[2,0]),linewidth=1,linestyle='--')
-	ax.plot((0,M[0,-1]),(0,M[1,-1]),(0,M[2,-1]),linewidth=1,linestyle='--')
-	ax.text(M[0,0],M[1,0],M[2,0],r'$M_0$',fontsize=8)
-	ax.text(M[0,-1],M[1,-1],M[2,-1],r'end',fontsize=8)
-	ax.legend()
-	ax.set_xlim(-1.1,1.1)
-	ax.set_ylim(-1.1,1.1)
-	ax.set_zlim(-1.1,1.1)
-	ax.set_xlabel('x')
-	ax.set_ylabel('y')
-	ax.set_zlabel('z')
-	if save_fig:
-		print('save fig...'+picname)
-		plt.savefig(picname)
-	else:
-		plt.show()
-	return
-def plot_transverse_signal(M_total_hist,dt=0.01,time_hist=None,picname='pictures/mri_tmp_pic_trans_signal.png',save_fig=False):
-	"""
-	plot the sum of transverse magnetization
-	M_hist:(3*num*Nt), dt:(ms), `if use time_hist, then donot care the dt input`
-	M_total_hist:(3*Nt)
-	"""
-	Nt = M_total_hist.shape[1]
-	if time_hist == None:
-		time = np.arange(Nt)*dt
-	else:
-		time = np.array(time_hist.tolist())
-	signal = np.array(M_total_hist.tolist())
-	magnitude = np.sqrt(signal[0,:]**2 + signal[1,:]**2)
-	plt.figure()
-	plt.plot(time,signal[0,:],label=r'$M_x$ sum',alpha=0.4)
-	plt.plot(time,signal[1,:],label=r'$M_y$ sum',alpha=0.4)
-	plt.plot(time,magnitude,label=r'$M_{xy}$ (magnitude)',ls='--',lw=1)
-	plt.legend()
-	plt.xlabel('time(ms)')
-	plt.ylabel('signal')
-	plt.title('total signal')
-	if save_fig:
-		print('save fig...'+picname)
-		plt.savefig(picname)
-	else:
-		plt.show()
-	return
-def plot_slr_profile(locations,a,b,case='xy',picname='pictures/mri_tmp_pic_slr_profile.png',save_fig=False):
-	"""
-	M1d:(1*num), locations:(cm)
-	"""
-	loc = np.array(locations.tolist())
-	Mxy = 2*(a.conj())*b # excitation case
-	# Mz = a*(a.conj()) - b*(b.conj()) # excitation case
-	Mz = a.abs()**2 - b.abs()**2
-	Mxy_ref = (a.conj())**2 + b**2 # refocusing case
-	Mxy_crusedref = (b**2).abs()
-	Mxy_crusedref_r = (b**2).real
-	Mxy_crusedref_i = (b**2).imag
-	plt.figure(figsize=(16,8))
-	# Mxy_mag = Mxy.abs()
-	# M = np.array(Mxy_mag.tolist())
-	# plt.plot(loc,M,label='Mxy')
-	#
-	if case=='z': # assume start in z-axis, for excitation case or inversion case
-		M = np.array(Mxy.real.tolist())
-		plt.plot(loc,M,label='slr Mx')
-		M = np.array(Mxy.imag.tolist())
-		plt.plot(loc,M,label='slr My')
-		M = np.array(Mz.tolist())
-		plt.plot(loc,M,label='slr Mz',ls='--')
-	if False: # assume start in y-axis
-		M = np.array(Mxy_ref.abs().tolist())
-		plt.plot(loc,M,label=r'$(\alpha^*)^2+\beta^2$')
-		M = np.array(Mxy_ref.real.tolist())
-		plt.plot(loc,M,label=r'$(\alpha^*)^2+\beta^2$ real',ls='--')
-		M = np.array(Mxy_ref.imag.tolist())
-		plt.plot(loc,M,label=r'$(\alpha^*)^2+\beta^2$ imag',ls='--')
-	if case == 'xy': # assume start in y-axis, the crushed spin echoes
-		M = np.array(Mxy_crusedref.tolist())
-		plt.plot(loc,M,label=r'$\beta^2$')
-		M = np.array(Mxy_crusedref_r.tolist())
-		plt.plot(loc,M,label=r'$\beta^2$ real',ls='--')
-		M = np.array(Mxy_crusedref_i.tolist())
-		plt.plot(loc,M,label=r'$\beta^2$ imag',ls='--')
-	plt.legend()
-	plt.ylim(-1.05,1.05)
-	plt.ylabel('M')
-	plt.xlabel('cm')
-	if save_fig:
-		print('save fig...'+picname)
-		plt.savefig(picname)
-	else:
-		plt.show()
-	return
-def plot_magnetization_profile(locations,M_dis,method='xyz',picname='pictures/mri_pic_mag_profile.png',save_fig=False):
-	"""
-	M_dis:(3,num), locations:(num)(cm)
-	"""
-	M = np.array(M_dis.tolist())
-	loc = np.array(locations.tolist())
-	plt.figure(figsize=(16,8))
-	if method == 'z':
-		plt.plot(loc,M[2,:],label='Mz')
-	else:
-		plt.plot(loc,M[0,:],label='Mx')
-		plt.plot(loc,M[1,:],label='My')
-		plt.plot(loc,M[2,:],label='Mz',ls='--')
-	plt.legend()
-	plt.ylim(-1.05,1.05)
-	plt.xlabel('cm')
-	if save_fig:
-		print('save fig...'+picname)
-		plt.savefig(picname)
-	else:
-		plt.show()
-	return
-def plot_magnetization_profile_two(location1,M_dis1,location2,M_dis2,method='z',picname='pictures/mri_tmp_pic_mag_profile_compare.png',save_fig=False):
-	'''plot two profile in one picture for compare'''
-	plt.figure(figsize=(12,8))
-	# 1
-	M = np.array(M_dis1.tolist())
-	loc = np.array(location1.tolist())
-	if method == 'x':
-		plt.plot(loc,M[0,:],label='Mx 1')
-	elif method == 'y':
-		plt.plot(loc,M[1,:],label='My 1')
-	elif method == 'z':
-		plt.plot(loc,M[2,:],label='Mz 1')
-	else:
-		print('wrong method...')
-	# 2
-	M = np.array(M_dis2.tolist())
-	loc = np.array(location2.tolist())
-	if method == 'x':
-		plt.plot(loc,M[0,:],label='Mx 2',ls='--')
-	elif method == 'y':
-		plt.plot(loc,M[1,:],label='My 2',ls='--')
-	elif method == 'z':
-		plt.plot(loc,M[2,:],label='Mz 2',ls='--')
-	else:
-		print('wrong method...')
-	# 
-	plt.legend()
-	plt.ylim(-1.05,1.05)
-	plt.xlabel('cm')
-	if save_fig:
-		print('save fig...'+picname)
-		plt.savefig(picname)
-	else:
-		plt.show()
-	return
-def plot_1d_profile(location,value,picname='pictures/mri_tmp_pic_1d_profile.png',save_fig=False):
-	value = np.array(value.tolist())
-	loc = np.array(location.tolist())
-	plt.figure(figsize=(12,8))
-	plt.plot(loc,value)
-	plt.xlabel('cm')
-	if save_fig:
-		print('save fig...'+picname)
-		plt.savefig(picname)
-	else:
-		plt.show()
-	return
-def plot_1d_profiles(locationlist,valuelsit,picname='pictures/mri_tmp_pic_1d_profiles.png',save_fig=False):
-	plt.figure(figsize=(12,8))
-	for location,value in zip(locationlist,valuelsit):
-		value = np.array(value.tolist())
-		loc = np.array(location.tolist())
-		plt.plot(loc,value)
-	plt.xlabel('cm')
-	if save_fig:
-		print('save fig...'+picname)
-		plt.savefig(picname)
-	else:
-		plt.show()
-	return
-def plot_distribution(value,picname='pictures/mri_tmp_pic.png',save_fig=False):
-	value = np.array(value.tolist())
-	y1 = np.ones(len(value))
-	plt.figure(figsize=(40,5))
-	# plt.hist(value,bins=100)
-	# plt.scatter(value,y1)
-	plt.stem(value,y1)
-	# plt.plot(value)
-	if save_fig:
-		print('save fig...'+picname)
-		plt.savefig(picname)
-	else:
-		plt.show()
-	return
-def plot_images(imagelist,valuerange=None,picname='pictures/mri_tmp_pic_images.png',save_fig=False):
-	'''input: image list, list of image (numpyarray)'''
 	image_num = len(imagelist)
 	if valuerange != None:
 		vmin,vmax = valuerange[0],valuerange[1]
@@ -2784,7 +2864,7 @@ def plot_images(imagelist,valuerange=None,picname='pictures/mri_tmp_pic_images.p
 				row_num,col_num = 5,8 # 
 			if row_num*col_num < image_num:
 				print('too many slices for ploting! warning!')
-		fig, axs = plt.subplots(nrows=row_num, ncols=col_num, figsize=(14,8))
+		fig, axs = plt.subplots(nrows=row_num, ncols=col_num, figsize=(14,10))
 		i = 0
 		for ax,image in zip(axs.flat,imagelist):
 			i = i + 1
@@ -2802,15 +2882,339 @@ def plot_images(imagelist,valuerange=None,picname='pictures/mri_tmp_pic_images.p
 		plt.tight_layout()
 		fig.colorbar(pp, ax=axs)
 		# fig.colorbar(pp, ax=axs, orientation='horizontal', fraction=.1)
-	if save_fig:
-		print('save fig...'+picname)
+		fig.suptitle(title)
+	if savefig:
+		print('save fig ... | '+picname)
 		plt.savefig(picname)
 	else:
 		plt.show()
 	return
-def plot_cube_slices(spinarraygrid,value,valuerange=None,picname='pictures/mri_tmp_pic_cube_slices.png',save_fig=False):
+# ==========================================================================
+def plot_pulse(rf,gr,dt,picname='tmppic_mri_pulse.png',savefig=False):
+	'''
+	rf:(2*Nt)(mT/cm), gr:(3*Nt)(mT/m), dt:(ms)
+	'''
+	N = rf.shape[1]
+	rf = np.array(rf.tolist())
+	gr = np.array(gr.tolist())
+	time = np.arange(N)*dt
+	fig, ax = plt.subplots(2,figsize=(10,5))
+	# fig.suptitle('')
+	ax[0].plot(time,rf[0,:],label='rf real',lw=1)
+	ax[0].plot(time,rf[1,:],label='rf imag',lw=1)
+	ax[1].plot(time,gr[0,:],label='gr,x',lw=1)
+	ax[1].plot(time,gr[1,:],label='gr,y',lw=1)
+	ax[1].plot(time,gr[2,:],label='gr,z',lw=1)
+	ax[0].set_ylabel('mT')
+	ax[1].set_ylabel('mT/m')
+	plt.xlabel('time(ms)')
+	ax[0].legend()
+	ax[1].legend()
+	check_savefig(savefig,picname)
+	# if savefig:
+	# 	print('save fig ... | '+picname)
+	# 	plt.savefig(picname)
+	# else:
+	# 	plt.show()
+	# return
+def plot_pulses(pulse_list:list,picname='tmppic_mri_pulse.png',savefig=False):
+	'''
+	input: 
+		pulse_list: a list of Pulse objects
+	'''
+	fig, ax = plt.subplots(2,figsize=(10,5))
+	T = 0
+	for pulse in pulse_list:
+		rf,gr,dt = pulse.rf,pulse.gr,pulse.dt
+		dur = pulse.get_duration()
+		# 
+		rf = np.array(rf.tolist())
+		gr = np.array(gr.tolist())
+		N = rf.shape[1]
+		time = np.arange(N)*dt + T
+		ax[0].plot(time,rf[0,:],label='rf real',lw=1,color='blue')
+		ax[0].plot(time,rf[1,:],label='rf imag',lw=1,color='red')
+		ax[1].plot(time,gr[0,:],label='gr,x',lw=1,color='red')
+		ax[1].plot(time,gr[1,:],label='gr,y',lw=1,color='green')
+		ax[1].plot(time,gr[2,:],label='gr,z',lw=1,color='blue')
+		plt.xlabel('time(ms)')
+		T = T+dur
+	check_savefig(savefig,picname)
+	return
+def plot_magnetization_change(M_hist, dt, picname='tmppic_mri_mag.png',savefig=False):
 	"""
-	spinarraygrad:SpinArray(as cube), value:(num), 
+	how magnetization changes with time
+
+	input:
+		M_hist:(3*Nt), dt:(ms)
+	"""
+	N = M_hist.shape[1]
+	M = np.array(M_hist.tolist())
+	Mxy = np.sqrt(M[0,:]**2+M[1,:]**2)
+	time = np.arange(N)*dt
+	plt.figure()
+	plt.plot(time,M[0,:],label='x')
+	plt.plot(time,M[1,:],label='y')
+	plt.plot(time,Mxy,label=r'$|M_{xy}|$',ls='--',alpha=0.8)
+	plt.plot(time,M[2,:],label='z')
+	plt.legend()
+	plt.xlabel('time(ms)')
+	check_savefig(savefig,picname)
+	# if savefig:
+	# 	print('save fig ...'+picname)
+	# 	plt.savefig(picname)
+	# else:
+	# 	plt.show()
+	return
+def plot_pulse_and_magnetization(rf, gr, M_hist, dt, picname='tmppic_mri_pulse_mag.png',savefig=False):
+	"""
+	input:
+		M_hist:(3*Nt), rf:(2*Nt)(mT/cm), gr:(3*Nt)(mT/m), dt:(ms)
+	"""
+	N = rf.shape[1]
+	rf = np.array(rf.tolist())
+	gr = np.array(gr.tolist())
+	time = np.arange(N)*dt
+	fig, ax = plt.subplots(3)
+	# fig.suptitle('')
+	ax[0].plot(time,rf[0,:],label='rf real')
+	ax[0].plot(time,rf[1,:],label='rf imag')
+	ax[1].plot(time,gr[0,:],label='gr,x')
+	ax[1].plot(time,gr[1,:],label='gr,y')
+	ax[1].plot(time,gr[2,:],label='gr,z')
+	N = M_hist.shape[1]
+	M = np.array(M_hist.tolist())
+	time = np.arange(N)*dt
+	ax[2].plot(time,M[0,:],label='x')
+	ax[2].plot(time,M[1,:],label='y')
+	ax[2].plot(time,M[2,:],label='z')
+	ax[0].set_ylabel('mT')
+	ax[1].set_ylabel('mT/m')
+	ax[2].set_ylabel('Magnetization')
+	plt.xlabel('time(ms)')
+	ax[0].legend()
+	ax[1].legend()
+	ax[2].legend()
+	check_savefig(savefig,picname)
+	return
+def plot_magnetization_3d_rotation(M_hist,dt,picname='tmppic_mri_spin_mag_3d_rotation.png',savefig=False):
+	"""
+	plot of how magnetization changes in 3D
+	"""
+	M = np.array(M_hist.tolist())
+	ax = plt.figure().add_subplot(projection='3d')
+	ax.plot(M[0,:],M[1,:],M[2,:],label='magnetization')
+	ax.plot((0,M[0,0]),(0,M[1,0]),(0,M[2,0]),linewidth=1,linestyle='--')
+	ax.plot((0,M[0,-1]),(0,M[1,-1]),(0,M[2,-1]),linewidth=1,linestyle='--')
+	ax.text(M[0,0],M[1,0],M[2,0],r'$M_0$',fontsize=8)
+	ax.text(M[0,-1],M[1,-1],M[2,-1],r'end',fontsize=8)
+	ax.legend()
+	ax.set_xlim(-1.1,1.1)
+	ax.set_ylim(-1.1,1.1)
+	ax.set_zlim(-1.1,1.1)
+	ax.set_xlabel('x')
+	ax.set_ylabel('y')
+	ax.set_zlabel('z')
+	if savefig:
+		print('save fig ... | '+picname)
+		plt.savefig(picname)
+	else:
+		plt.show()
+	return
+def plot_transverse_signal(M_total_hist,dt=0.01,time_hist=None,picname='mri_tmp_pic_trans_signal.png',savefig=False):
+	"""
+	plot the sum of transverse magnetization
+	M_hist:(3*num*Nt), dt:(ms), `if use time_hist, then donot care the dt input`
+	M_total_hist:(3*Nt)
+	"""
+	Nt = M_total_hist.shape[1]
+	if time_hist == None:
+		time = np.arange(Nt)*dt
+	else:
+		time = np.array(time_hist.tolist())
+	signal = np.array(M_total_hist.tolist())
+	magnitude = np.sqrt(signal[0,:]**2 + signal[1,:]**2)
+	plt.figure()
+	plt.plot(time,signal[0,:],label=r'$M_x$ sum',alpha=0.4)
+	plt.plot(time,signal[1,:],label=r'$M_y$ sum',alpha=0.4)
+	plt.plot(time,magnitude,label=r'$M_{xy}$ (magnitude)',ls='--',lw=1)
+	plt.legend()
+	plt.xlabel('time(ms)')
+	plt.ylabel('signal')
+	plt.title('total signal')
+	if savefig:
+		print('save fig ...'+picname)
+		plt.savefig(picname)
+	else:
+		plt.show()
+	return
+def plot_slr_profile(locations,a,b,case='xy',picname='mri_tmp_pic_slr_profile.png',savefig=False):
+	"""
+	M1d:(1*num), locations:(cm)
+	"""
+	loc = np.array(locations.tolist())
+	Mxy = 2*(a.conj())*b # excitation case
+	# Mz = a*(a.conj()) - b*(b.conj()) # excitation case
+	Mz = a.abs()**2 - b.abs()**2
+	Mxy_ref = (a.conj())**2 + b**2 # refocusing case
+	Mxy_crusedref = (b**2).abs()
+	Mxy_crusedref_r = (b**2).real
+	Mxy_crusedref_i = (b**2).imag
+	plt.figure(figsize=(16,8))
+	# Mxy_mag = Mxy.abs()
+	# M = np.array(Mxy_mag.tolist())
+	# plt.plot(loc,M,label='Mxy')
+	#
+	if case=='z': # assume start in z-axis, for excitation case or inversion case
+		M = np.array(Mxy.real.tolist())
+		plt.plot(loc,M,label='slr Mx')
+		M = np.array(Mxy.imag.tolist())
+		plt.plot(loc,M,label='slr My')
+		M = np.array(Mz.tolist())
+		plt.plot(loc,M,label='slr Mz',ls='--')
+	if False: # assume start in y-axis
+		M = np.array(Mxy_ref.abs().tolist())
+		plt.plot(loc,M,label=r'$(\alpha^*)^2+\beta^2$')
+		M = np.array(Mxy_ref.real.tolist())
+		plt.plot(loc,M,label=r'$(\alpha^*)^2+\beta^2$ real',ls='--')
+		M = np.array(Mxy_ref.imag.tolist())
+		plt.plot(loc,M,label=r'$(\alpha^*)^2+\beta^2$ imag',ls='--')
+	if case == 'xy': # assume start in y-axis, the crushed spin echoes
+		M = np.array(Mxy_crusedref.tolist())
+		plt.plot(loc,M,label=r'$\beta^2$')
+		M = np.array(Mxy_crusedref_r.tolist())
+		plt.plot(loc,M,label=r'$\beta^2$ real',ls='--')
+		M = np.array(Mxy_crusedref_i.tolist())
+		plt.plot(loc,M,label=r'$\beta^2$ imag',ls='--')
+	plt.legend()
+	plt.ylim(-1.05,1.05)
+	plt.ylabel('M')
+	plt.xlabel('cm')
+	if savefig:
+		print('save fig ...'+picname)
+		plt.savefig(picname)
+	else:
+		plt.show()
+	return
+def plot_magnetization_profile(locations,M_dis,method='xyz',picname='tmppic_mri_profile.png',savefig=False):
+	"""
+	inputs:
+		locations:(num)(cm)
+		M_dis:(3,num), 
+	"""
+	M = np.array(M_dis.tolist())
+	loc = np.array(locations.tolist())
+	plt.figure(figsize=(16,8))
+	if method == 'z':
+		plt.plot(loc,M[2,:],label='Mz')
+	else:
+		plt.plot(loc,M[0,:],label='Mx')
+		plt.plot(loc,M[1,:],label='My')
+		plt.plot(loc,M[2,:],label='Mz',ls='--')
+	plt.legend()
+	plt.ylim(-1.05,1.05)
+	plt.xlabel('cm')
+	check_savefig(savefig,picname)
+	# if savefig:
+	# 	print('save fig ...'+picname)
+	# 	plt.savefig(picname)
+	# else:
+	# 	plt.show()
+	return
+def plot_magnetization_profile_two(location1,M_dis1,location2,M_dis2,method='z',picname='tmppic_profile_compare.png',savefig=False):
+	'''plot two profile in one picture for compare'''
+	plt.figure(figsize=(12,8))
+	# 1
+	M = np.array(M_dis1.tolist())
+	loc = np.array(location1.tolist())
+	if method == 'x':
+		plt.plot(loc,M[0,:],label='Mx 1')
+	elif method == 'y':
+		plt.plot(loc,M[1,:],label='My 1')
+	elif method == 'z':
+		plt.plot(loc,M[2,:],label='Mz 1')
+	else:
+		print('wrong method...')
+	# 2
+	M = np.array(M_dis2.tolist())
+	loc = np.array(location2.tolist())
+	if method == 'x':
+		plt.plot(loc,M[0,:],label='Mx 2',ls='--')
+	elif method == 'y':
+		plt.plot(loc,M[1,:],label='My 2',ls='--')
+	elif method == 'z':
+		plt.plot(loc,M[2,:],label='Mz 2',ls='--')
+	else:
+		print('wrong method...')
+	# 
+	plt.legend()
+	# plt.ylim(-1.05,1.05)
+	plt.xlabel('cm')
+	if savefig:
+		print('save fig ... | '+picname)
+		plt.savefig(picname)
+	else:
+		plt.show()
+	return
+def plot_1d_profile(location,value,picname='tmppic_profile.png',savefig=False):
+	value = np.array(value.tolist())
+	loc = np.array(location.tolist())
+	plt.figure(figsize=(12,8))
+	plt.plot(loc,value)
+	plt.xlabel('cm')
+	if savefig:
+		print('save fig ... | '+picname)
+		plt.savefig(picname)
+	else:
+		plt.show()
+	return
+def plot_1d_profiles(locationlist,valuelsit,labellist=None,picname='tmppic_profiles.png',savefig=False):
+	'''inputs:
+		locationlist: list of locations, (cm)
+		valuelist: list of values
+	'''
+	if labellist == None:
+		labellist = ['' for _ in range(len(locationlist))]
+	# print(labellist)
+	plt.figure(figsize=(12,8))
+	k = 0
+	for location,value in zip(locationlist,valuelsit):
+		value = np.array(value.tolist())
+		loc = np.array(location.tolist())
+		plt.plot(loc,value,label=labellist[k])
+		k = k+1
+	plt.legend()
+	plt.xlabel('cm')
+	if savefig:
+		print('save fig ... | '+picname)
+		plt.savefig(picname)
+	else:
+		plt.show()
+	return
+def plot_distribution(value,picname='tmppic.png',savefig=False):
+	value = np.array(value.tolist())
+	y1 = np.ones(len(value))
+	plt.figure(figsize=(40,5))
+	# plt.hist(value,bins=100)
+	# plt.scatter(value,y1)
+	plt.stem(value,y1)
+	# plt.plot(value)
+	if savefig:
+		print('save fig ... | '+picname)
+		plt.savefig(picname)
+	else:
+		plt.show()
+	return
+def plot_cube_slices(spinarraygrid,value,valuerange=None,title='',
+		picname='tmppic_cube_slices.png',savefig=False):
+	"""
+	input:
+	- spinarraygrad: SpinArray (as_cube == True), 
+	- value: (num), 
+	- valuerange: e.g., [0,1],
+	- title: (str)
+	- picname: 
+	- savefig:  
 	"""
 	slice_num = len(spinarraygrid.slice_spin_idx)
 	# M = torch.rand_like(M,device=device)
@@ -2841,10 +3245,10 @@ def plot_cube_slices(spinarraygrid,value,valuerange=None,picname='pictures/mri_t
 			plt.savefig(picname)
 		plt.show()
 	else:
-		plot_images(images,valuerange,picname,save_fig=save_fig)
+		plot_images(images,valuerange,title=title,picname=picname,savefig=savefig)
 	return
 	# -------
-def plot_slices(spinarraygrid,M,plotmethod,valuerange=None,picname='pictures/mri_pic_mag_slices.png',save_fig=False):
+def plot_slices(spinarraygrid,M,plotmethod,valuerange=None,picname='mri_pic_mag_slices.png',savefig=False):
 	"""
 	M:(3,num), cube:SpinArray
 	"""
@@ -2887,8 +3291,8 @@ def plot_slices(spinarraygrid,M,plotmethod,valuerange=None,picname='pictures/mri
 	else:
 		plot_images(images,valuerange,picname)
 	return
-# ----------------------------------------------------
-def test_plots():
+# ================================================================================
+def test_plots(savefig=False):
 	cube = Build_SpinArray(fov=[4,4,4],dim=[5,5,5])
 	cube.show_info()
 	# plot_slices(cube,cube.Mag,'z')
@@ -2896,9 +3300,9 @@ def test_plots():
 	if True:
 		x = np.arange(100).reshape(10,10)
 		imagelist = [x,x,x]
-		plot_images(imagelist,valuerange=[-9,90],save_fig=SAVE_FIG)
+		plot_images(imagelist,valuerange=[-9,90],title='example',savefig=savefig)
 	if True:
-		plot_cube_slices(cube,cube.T2,save_fig=SAVE_FIG)
+		plot_cube_slices(cube,cube.T2,title='test, T2 values',savefig=savefig)
 	if False:
 		x = np.arange(100).reshape(10,10)
 		image_list = [x,x]
@@ -2910,6 +3314,13 @@ def test_plots():
 
 
 
+
+
+
+
+# ============================================================================
+# Data input and output
+# ============================================================================
 # my defined data format:
 '''
 data:
@@ -2925,14 +3336,15 @@ data:
 import scipy.io as spio
 def save_infos(pulse,logname,otherinfodic={}):
 	'''save the informations'''
-	rf = np.array(pulse.rf.tolist())
-	gr = np.array(pulse.gr.tolist())
 	info = {}
-	info['rf'] = rf
-	info['gr'] = gr
-	info['dt'] = pulse.dt
-	info['Nt'] = pulse.Nt
-	info['info'] = 'rf:mT, gr:mT/m, dt:ms'
+	if pulse != None:
+		rf = np.array(pulse.rf.tolist())
+		gr = np.array(pulse.gr.tolist())
+		info['rf'] = rf
+		info['gr'] = gr
+		info['dt'] = pulse.dt
+		info['Nt'] = pulse.Nt
+		info['info'] = 'rf:mT, gr:mT/m, dt:ms'
 	for k in otherinfodic.keys():
 		info[k] = otherinfodic[k]
 	print('>> save data...'+logname)
@@ -2941,6 +3353,9 @@ def save_infos(pulse,logname,otherinfodic={}):
 	return
 	# ----------------
 def read_data(filename):
+	'''
+	return the dictionary
+	'''
 	try:
 		data = spio.loadmat(filename)
 		out = '>> read in data: {} | '.format(filename)
@@ -3013,7 +3428,7 @@ def test_freeprecession():
 	# simulation
 	rf.requires_grad = True
 	M,M_hist = blochsim(spin,N,1,rf,gr)
-	plot_magnetization(M_hist,1)
+	plot_magnetization_change(M_hist,1)
 	# plot_pulse(rf,gr,1)
 	loss = torch.sum(M**2)
 	loss.backward()
@@ -3100,30 +3515,32 @@ def test4():
 
 
 
+
+
+
+
+
+
+
 # ============================================================================
 # ============================================================================
 #                              examples
 # ============================================================================
 # ============================================================================
-def example_4_spin_freeprecession(device=torch.device('cpu'),savefig=False):
-	print('\nExample of spin free precession')
-	spin = Spin(df=10., loc=[0.,0.,1.5], device=device)
-	spin.set_Mag(torch.tensor([0.,1.,0.],device=device))
+def example_1_spin(device=torch.device('cpu')):
+	print('\n'+''.center(40,'-'))
+	print('Example of a spin:')
+	spin = Spin(T1=2000, T2=40, df=10., mag=torch.tensor([0.,2.,1.],device=device),
+		loc=[0.,0.,1.5], B1kappa=0.4, device=device)
+	spin.set_Mag(torch.tensor([0.,2.,2.]))
+	spin.set_B1kappa(0.9)
 	spin.show_info()
-	Nt = 1000
-	rf = 0.0*torch.zeros((2,Nt),device=device)
-	gr = 0.0*torch.zeros((3,Nt),device=device)
-	dt = 1.0 # ms
-	M,M_hist = blochsim_spin(spin,Nt,dt,rf,gr, device=device)
-	print('stopped magnetization:\n\t',M)
 	# 
-	print('plot magnetization')
-	plot_magnetization(M_hist,dt,save_fig=savefig)
-	print('plot 3d magnetization')
-	plot_magnetization_3d_rotation(M_hist,dt,save_fig=savefig)
+	print(spin.get_loc())
 	return
-def example_5_spinarray_sim(device=torch.device('cpu'),savefig=False):
-	print('\nExample of spin array simulation:')
+def example_2_spinarray(device=torch.device('cpu')):
+	print('\n'+''.center(40,'-'))
+	print('Example of spin array:')
 	n = 5
 	loc = torch.rand((3,n),device=device)
 	loc[0,:] = torch.tensor([0.,1.,0.,3.,4.],device=device)
@@ -3131,9 +3548,105 @@ def example_5_spinarray_sim(device=torch.device('cpu'),savefig=False):
 	loc[2,:] = torch.tensor([0.,0.,0.,1.,0.],device=device)
 	T1 = torch.ones(n,device=device)*1000.0
 	T2 = torch.ones(n,device=device)*100.0
-	#
 	spinarray = SpinArray(loc=loc,T1=T1,T2=T2,device=device)
 	spinarray.df = torch.tensor([10.,5.,0.,0.,0.],device=device)
+	spinarray.show_info()
+	print('select spins by locations: \t',spinarray.get_index([3,6],[0,1],[0,1]))
+	print('select sub-object ...')
+	tmpsp = spinarray.get_spin(0)
+	# tmpsp.show_info()
+	tmpsp = spinarray.get_spins(torch.tensor([0,1,2]))
+	# tmpsp.show_info()
+	tmpsp = spinarray.delete_spins(torch.tensor([1]))
+	# tmpsp.show_info()
+	# print('\ttest selection pass')
+	return
+def example_3_cube(device=torch.device('cpu')):
+	print('\n'+''.center(40,'-'))
+	print('Example of a cube:')
+	print('build a cube:')
+	fov = [4,4,2] # cm
+	dim = [3,3,5] 
+	cube = Build_SpinArray(fov=fov,dim=dim,device=dev, B1map=torch.randn(dim,device=dev))
+	cube.show_info()
+	# 
+	print('test get some spins index within the cube ...')
+	idx = cube.get_index([-0.1,0.1],[-0.1,0.1],[-2.,2.])
+	print('num =',len(idx))
+	# cube_seg = cube.get_cube([-0.1,0.1],[-0.1,0.1],[-2.,2.])
+	# cube_seg.show_info()
+	return
+def example_4_pulse(device=torch.device('cpu'),savefig=False):
+	print('\n'+''.center(40,'-'))
+	print('Example of a pulse:')
+	Nt = 1000
+	rf = 0.0*torch.zeros((2,Nt),device=device)
+	rf[0,:] = 6*1e-3*torch.special.sinc((torch.arange(Nt,device=device)-200)/100) # mT
+	gr = 0.0*torch.zeros((3,Nt),device=device)
+	dt = 1.0 # ms
+	pulse = Pulse(rf=rf,gr=gr,dt=dt,device=device)
+	# 
+	plot_pulse(pulse.rf,pulse.gr,pulse.dt,savefig=savefig)
+	plot_pulses([pulse,pulse],savefig=savefig)
+	return
+def example_5_spin_simulation(device=torch.device('cpu'),savefig=False):
+	print('\n'+''.center(40,'-'))
+	print('Example of spin simulation')
+	spin = Spin(device=device)
+	spin.set_Mag(torch.tensor([2.0,3.0,2.0],device=device))
+	spin.show_info()
+	# 
+	Nt = 1000
+	rf = 0.0*torch.zeros((2,Nt),device=device)
+	rf[0,:] = 6*1e-3*torch.special.sinc((torch.arange(Nt,device=device)-200)/100) # mT
+	gr = 0.0*torch.zeros((3,Nt),device=device)
+	dt = 1.0 # ms
+	# 
+	# bloch simulation
+	print('spin bloch simulation:')
+	M,M_hist = blochsim_spin(spin,Nt,dt,rf,gr, device=device)
+	plot_magnetization_change(M_hist,dt,savefig=savefig)
+	plot_pulse_and_magnetization(rf,gr,M_hist,dt,savefig=savefig)
+	plot_magnetization_3d_rotation(M_hist,dt,savefig=savefig)
+	# spin-domain simulation
+	print('spin spin-domain simulation:')
+	a,b = spinorsim_spin(spin,Nt,dt,rf,gr,device=device)
+	print(a,b)
+	return
+def example_5_spin_freeprecession(device=torch.device('cpu'),savefig=False):
+	print('\n'+''.center(40,'-'))
+	print('Example of spin free precession')
+	spin = Spin(df=10., loc=[0.,0.,1.5], B1kappa=0.9, device=device)
+	spin.set_Mag(torch.tensor([0.,1.,0.],device=device))
+	spin.show_info()
+	Nt = 1000
+	rf = 0.0*torch.zeros((2,Nt),device=device)
+	# rf[0,:] = 6*1e-3*torch.special.sinc((torch.arange(Nt,device=device)-200)/100) # mT
+	gr = 0.0*torch.zeros((3,Nt),device=device)
+	dt = 1.0 # ms
+	M,M_hist = blochsim_spin(spin,Nt,dt,rf,gr, device=device)
+	print('stopped magnetization:\n\t',M)
+	# 
+	print('plot magnetization')
+	plot_magnetization_change(M_hist,dt,savefig=savefig)
+	print('plot pulse and magnetization:')
+	plot_pulse_and_magnetization(rf,gr,M_hist,dt,savefig=savefig)
+	print('plot 3d magnetization')
+	plot_magnetization_3d_rotation(M_hist,dt,savefig=savefig)
+	return
+def example_6_spinarray_bloch_simulation(device=torch.device('cpu'),savefig=False):
+	print(''.center(40,'-'))
+	print('\nExample of spin array bloch simulation:')
+	n = 5
+	loc = torch.rand((3,n),device=device)
+	loc[0,:] = torch.tensor([0.,1.,0.,3.,4.],device=device)
+	loc[1,:] = torch.tensor([0.,0.,0.,0.,0.],device=device)
+	loc[2,:] = torch.tensor([0.,0.,0.,1.,0.],device=device)
+	T1 = torch.ones(n,device=device)*1000.0
+	T2 = torch.ones(n,device=device)*100.0
+	offres = torch.tensor([10.,5.,0.,0.,0.],device=device)
+	#
+	spinarray = SpinArray(loc=loc,T1=T1,T2=T2,df=offres,device=device)
 	#
 	Nt = 1000
 	dt = 1.0 # ms
@@ -3149,8 +3662,9 @@ def example_5_spinarray_sim(device=torch.device('cpu'),savefig=False):
 	# print('plot of transverse signal')
 	# plot_transverse_signal(M_hist,dt=dt)
 	return
-def example_6_arraysim_1d(device=torch.device('cpu'),savefig=False):
-	print('\nExample of magnetization profile along one direction:')
+def example_6_spinarray_bloch_simu_1d(device=torch.device('cpu'),savefig=False):
+	print('\n'+''.center(40,'-'))
+	print('Example of magnetization profile along one direction:')
 	Nt = 400 #100
 	dt = 0.01 # ms
 	t0 = 100
@@ -3161,13 +3675,18 @@ def example_6_arraysim_1d(device=torch.device('cpu'),savefig=False):
 	# build a cube:
 	fov = [4,4,2]
 	dim = [3,3,100]
-	cube = Build_SpinArray(fov=fov,dim=dim,device=device)
+	cube = Build_SpinArray(fov=fov,dim=dim,B1map=0.5*torch.ones(dim,device=dev),device=device)
 	cube.show_info()
 	cube_seg = cube.get_cube([-0.1,0.1],[-0.1,0.1],[-2.,2.])
-	loc = cube_seg.loc[2,:]
+	# cube_seg.kappa[50] = 0.1 # test of transmission inhomo
 	M = blochsim(cube_seg,Nt,dt,rf,gr,device=device)
+	# plot
 	print('plot the profile along z direction')
-	plot_magnetization_profile(loc,M,save_fig=savefig)
+	loc = cube_seg.loc[2,:]
+	plot_magnetization_profile(loc,M,savefig=savefig)
+	plot_magnetization_profile_two(loc,M,loc,M+1,savefig=savefig)
+	plot_1d_profile(loc,M[0,:],savefig=savefig)
+	plot_1d_profiles([loc,loc],[M[0,:],M[1,:]],labellist=['x','y'],savefig=savefig)
 	return
 def example_6_arraysim_1d_old():
 	"""using older simulator, is much slower"""
@@ -3190,7 +3709,91 @@ def example_6_arraysim_1d_old():
 	print('plot the profile along z direction')
 	plot_magnetization_profile(loc,M)
 	return
+def example_6_cube_bloch_simu(device=torch.device('cpu'),savefig=False):
+	print('\n'+''.center(40,'-'))
+	print('Example of bloch simulation of a cube and plotting:')
+	cube = Build_SpinArray(fov=[4,4,4],dim=[10,10,6],device=device)
+	cube.show_info()
+	Nt = 400 #100
+	dt = 0.01 # ms
+	t0 = 100
+	rf = 0.0*torch.zeros((2,Nt),device=device) # mT
+	rf[0,:] = 6*1e-3*torch.special.sinc((torch.arange(Nt,device=device)-200)/t0) # mT
+	gr = 10.0*torch.rand((3,Nt),device=device) # mT/m
+	# 
+	M = blochsim(cube,Nt,dt,rf,gr,device=device)
+	print(M.shape)
+	# plot:
+	plot_cube_slices(cube,M[0,:],title='test',savefig=savefig)
+	return
+def example_7_spinorsim(device=torch.device('cpu'),savefig=False):
+	print('\n'+''.center(40,'-'))
+	print('Example of spinor domain simulation:')
+	if False:
+		n = 5
+		loc = torch.rand((3,n),device=device)
+		loc[0,:] = torch.tensor([0.,1.,0.,3.,4.],device=device)
+		loc[1,:] = torch.tensor([0.,0.,0.,0.,0.],device=device)
+		loc[2,:] = torch.tensor([0.,0.,0.,1.,0.],device=device)
+		T1 = torch.ones(n,device=device)*1000.0
+		T2 = torch.ones(n,device=device)*100.0
+		#
+		spinarray = SpinArray(loc=loc,T1=T1,T2=T2)
+		spinarray.df = torch.tensor([10.,5.,0.,0.,0.],device=device)
+	if True:
+		torch.manual_seed(0)
+		n = 20000
+		loc = torch.randn((3,n),device=device)
+		T1 = torch.ones(n,device=device)*1000.0
+		T2 = torch.ones(n,device=device)*100.0
+		B1kappa = torch.ones(n,device=device)*0.1
+		spinarray = SpinArray(loc=loc,T1=T1,T2=T2,B1kappa=B1kappa,device=device)
+		spinarray.show_info()
+	#
+	Nt = 1000
+	dt = 1.0 # ms
+	rf = 1.0*torch.ones((2,Nt),device=device) # mT
+	gr = 0.0*torch.zeros((3,Nt),device=device) 
+	gr[2,:] = torch.ones(Nt,device=device)*5 # mT/m
+	# spin 0
+	spin0 = spinarray.get_spin(0)
+	a,b = spinorsim_spin(spin0,Nt,dt,rf,gr,device=device)
+	print(a,b)
+	# sim method (complex):
+	starttime = time()
+	a,b = spinorsim_c(spinarray,Nt,dt,rf,gr,device=device)
+	print('ar:',a.real[:4])
+	print('ai:',a.imag[:4])
+	print('br:',b.real[:4])
+	print('bi:',b.imag[:4])
+	print('-> running time',time()-starttime)
+	# sim method 1:
+	starttime = time()
+	ar,ai,br,bi = spinorsim_(spinarray,Nt,dt,rf,gr,device=device)
+	print('ar:',ar[:4])
+	print('ai:',ai[:4])
+	print('br:',br[:4])
+	print('bi:',bi[:4])
+	print('-> running time',time()-starttime)
+	# sim method 1 changed:
+	starttime = time()
+	ar,ai,br,bi = spinorsim_2(spinarray,Nt,dt,rf,gr,device=device)
+	print('ar:',ar[:4])
+	print('ai:',ai[:4])
+	print('br:',br[:4])
+	print('bi:',bi[:4])
+	print('-> running time',time()-starttime)
+	# sim method 2:
+	starttime = time()
+	ar,ai,br,bi = spinorsim(spinarray,Nt,dt,rf,gr,device=device)
+	print('ar:',ar[:4])
+	print('ai:',ai[:4])
+	print('br:',br[:4])
+	print('bi:',bi[:4])
+	print('-> running time',time()-starttime)
+	return
 def example_7_spin_SLR(device=torch.device('cpu'),savefig=False):
+	print(''.center(40,'-'))
 	print('\nExample of SLR simulation of a spin:')
 	spin = Spin(loc=torch.tensor([0.,0.,0.],device=device),device=device)
 	spin.show_info()
@@ -3211,6 +3814,7 @@ def example_7_spin_SLR(device=torch.device('cpu'),savefig=False):
 	print('Mxy:',Mxy)
 	return
 def example_8_array_slr_z(device=torch.device('cpu'),savefig=False):
+	print(''.center(40,'-'))
 	print('\nExample of SLR simulation along z-direction:')
 	Nt = 400 #100
 	dt = 0.01 # ms
@@ -3249,134 +3853,8 @@ def example_8_array_slr_z(device=torch.device('cpu'),savefig=False):
 	Mz = a*(a.conj()) - b*(b.conj()) # excitation case
 	plot_slr_profile(z, a, b, save_fig=savefig)
 	return
-def example_9_spinorsim(device=torch.device('cpu'),savefig=False):
-	print('\nExample of spinor domain simulation:')
-	if False:
-		n = 5
-		loc = torch.rand((3,n),device=device)
-		loc[0,:] = torch.tensor([0.,1.,0.,3.,4.],device=device)
-		loc[1,:] = torch.tensor([0.,0.,0.,0.,0.],device=device)
-		loc[2,:] = torch.tensor([0.,0.,0.,1.,0.],device=device)
-		T1 = torch.ones(n,device=device)*1000.0
-		T2 = torch.ones(n,device=device)*100.0
-		#
-		spinarray = SpinArray(loc=loc,T1=T1,T2=T2)
-		spinarray.df = torch.tensor([10.,5.,0.,0.,0.],device=device)
-	if True:
-		n = 20000
-		loc = torch.randn((3,n),device=device)
-		T1 = torch.ones(n,device=device)*1000.0
-		T2 = torch.ones(n,device=device)*100.0
-		spinarray = SpinArray(loc=loc,T1=T1,T2=T2,device=device)
-		spinarray.show_info()
-	#
-	Nt = 1000
-	dt = 1.0 # ms
-	rf = 1.0*torch.ones((2,Nt),device=device) # mT
-	gr = 0.0*torch.zeros((3,Nt),device=device) 
-	gr[2,:] = torch.ones(Nt,device=device)*5 # mT/m
-	# sim method 1:
-	starttime = time()
-	ar,ai,br,bi = spinorsim_(spinarray,Nt,dt,rf,gr,device=device)
-	print('ar:',ar[:4])
-	print('ai:',ai[:4])
-	print('br:',br[:4])
-	print('bi:',bi[:4])
-	print('-> ',time()-starttime)
-	# sim method 1 changed:
-	starttime = time()
-	ar,ai,br,bi = spinorsim_2(spinarray,Nt,dt,rf,gr,device=device)
-	print('ar:',ar[:4])
-	print('ai:',ai[:4])
-	print('br:',br[:4])
-	print('bi:',bi[:4])
-	print('-> ',time()-starttime)
-	# sim method 2:
-	starttime = time()
-	ar,ai,br,bi = spinorsim(spinarray,Nt,dt,rf,gr,device=device)
-	print('ar:',ar[:4])
-	print('ai:',ai[:4])
-	print('br:',br[:4])
-	print('bi:',bi[:4])
-	print('-> ',time()-starttime)
-	return
 # ---------------------
-# show possible examples:
-def example(device=torch.device('cpu')):
-	print()
-	print(''.center(40,'-'))
-	print('`mri` module examples:')
-	print(''.center(40,'-'))
-	
-	# define device
-	# ---------------------------------
-	# dev = torch.device("cuda:0")
-	# dev = torch.device('cpu')
-	dev = device
-	print('using device:',dev,'\n')
 
-	# > Example 1: of building a spin
-	print('Example of a spin:')
-	spin = Spin(df=10., loc=[0.,0.,1.5], device=dev)
-	spin.set_Mag(torch.tensor([0.,1.,0.]))
-	spin.show_info()
-	print(''.center(40,'-'))
-
-	# > Example 2: build a spin array
-	print('\nExample of spin array:')
-	n = 5
-	loc = torch.rand((3,n),device=dev)
-	loc[0,:] = torch.tensor([0.,1.,0.,3.,4.],device=dev)
-	loc[1,:] = torch.tensor([0.,0.,0.,0.,0.],device=dev)
-	loc[2,:] = torch.tensor([0.,0.,0.,1.,0.],device=dev)
-	T1 = torch.ones(n,device=dev)*1000.0
-	T2 = torch.ones(n,device=dev)*100.0
-	spinarray = SpinArray(loc=loc,T1=T1,T2=T2,device=dev)
-	spinarray.df = torch.tensor([10.,5.,0.,0.,0.],device=dev)
-	spinarray.show_info()
-	print('select spins by locations:\n\t',spinarray.get_index([3,6],[0,1],[0,1]))
-	print(''.center(40,'-'))
-
-	# > Example 3: build cube spin array using function
-	print('\nExample of a cube:')
-	print('build a cube:')
-	fov = [4,4,2] # cm
-	dim = [3,3,500] 
-	cube = Build_SpinArray(fov=fov,dim=dim,device=dev)
-	cube.show_info()
-	print('select some spins within the cube:')
-	idx = cube.get_index([-0.1,0.1],[-0.1,0.1],[-2.,2.])
-	print('num =',len(idx))
-	# cube_seg = cube.get_cube([-0.1,0.1],[-0.1,0.1],[-2.,2.])
-	# cube_seg.show_info()
-	print(''.center(40,'-'))
-
-	# > Example 4: spin free precession
-	example_4_spin_freeprecession(dev)
-	print(''.center(40,'-'))
-
-	# > Example 5: Spin array bloch simulation
-	example_5_spinarray_sim(dev)
-	print(''.center(40,'-'))
-
-	# > Example 6: Example of magnetization profile along one direction
-	example_6_arraysim_1d(dev)
-	print(''.center(40,'-'))
-
-	# > Example 7: SLR simulation of a spin
-	example_7_spin_SLR(dev)
-	print(''.center(40,'-'))
-
-	# > Example 8: SLR simulation of spin array along z-direction
-	example_8_array_slr_z(dev)
-	print(''.center(40,'-'))
-
-	# > Example 9: Spinor simulation
-	example_9_spinorsim(dev)
-	print(''.center(40,'-'))
-
-	return
-	# ------------
 # example show form the loss and compute the gradient:
 def example_backward(device=torch.device('cpu')):
 	print('\nExample of spin array simulation:')
@@ -3414,9 +3892,9 @@ def example_backward(device=torch.device('cpu')):
 
 	# Test gradient for which method:
 	# ------------------------------------------
-	# test_case = 'blochsim'
+	# test_case = 'blochsim'  # this can also useful when doing bloch simulation
 	# test_case = 'slrsim'
-	test_case = 'spinorsim'
+	test_case = 'spinorsim'  # this is the final case for rf pulse design
 
 	if test_case == 'blochsim':
 		# backward of bloch simulation:
@@ -3540,44 +4018,85 @@ def example_backward(device=torch.device('cpu')):
 
 
 if __name__ == "__main__":
-	MR()
+	MR() # some basic info
 
 	# choose device for running examples:
 	dev = "cuda:0" if torch.cuda.is_available() else "cpu"
 	dev = torch.device(dev)
+	# dev = torch.device('cpu')  # or test use cpu
 	print('>> test using device:',dev)
-	# dev = torch.device('cpu')
 
-	# some basic examples of using this module:
-	example(device=dev)
 
-	# example of doing backward of the simulation:
-	example_backward(device=dev)
+	'''# Some tests'''
+	# ------------------------------------------------
+	# >> test of basic objects:
+	# test_rotation_matrix()
+	# test_buildobj()
+	# test_slr_transform()
+	# test_signal() 
+
+	# >> test of plot functions:
+	# test_plots(savefig=True)
+
+
+	'''# Some basic examples using this module:'''
+	# ------------------------------------------------
+	print('\n'+'`mri` module examples:'.center(50,'='))
+	savefig = True
+
+	# >> Example 1: of building a spin
+	# example_1_spin(device=dev)
+
+	# >> Example 2: build a spin array
+	# example_2_spinarray(device=dev)
+
+	# >> Example 3: build cube spin array using function
+	# example_3_cube(device=dev)
+
+	# >> Example 4: build a pulse
+	# example_4_pulse(device=dev,savefig=savefig)
+
+	# >> Example 5: spin simulation
+	# example_5_spin_simulation(savefig=savefig)
+	# example_5_spin_freeprecession(dev,savefig=savefig)  # spin free precession
+
+	# >> Example 6: Spin array bloch simulation
+	# example_6_spinarray_bloch_simulation(dev)
+	# example_6_spinarray_bloch_simu_1d(dev,savefig=savefig)  # simu mag profile along one direction
+	# example_6_cube_bloch_simu(dev,savefig=savefig)
+	
+	# >> Example 7: Spinor simulation / spin-domain simulation
+	# example_7_spinorsim(dev)
+
+
+
+	'''other simulation examples i have, but may not useful'''
+	# >> Example 7: SLR simulation of a spin
+	# example_7_spin_SLR(dev)
+	
+	# >> Example 8: SLR simulation of spin array along z-direction
+	# example_8_array_slr_z(dev)
+	
+	
+	
+
+	'''# Some more complicated examples w.r.t. optimization:'''
+	# -----------------------------------------------------------
+	# >> example of doing backward of the simulation:
+	# example_backward(device=dev)
+
+
 
 	# example_pulse()
-	# R = RotationMatrix()
-	# R.example()
 
 	# ----------------------------------------------
 	# some test function while coding: (not important)
 	if True:
-		# -------------------------
-		# test the examples in function example():
-		# example_4_spin_freeprecession()
-		# example_5_spinarray_sim()
-		# example_6_arraysim_1d()
-		# example_7_spin_SLR()
-		# example_8_array_slr_z()
-		# example_9_spinorsim()
-
 		# test_freeprecession()
 		# test2()
 		# test3()
-		# test_buildobj()
 		# test_slr()
-		# test_plots()
-		# test_signal()
-
+		
 		if False:
 			cube = Build_SpinArray(fov=[1,1,1],dim=[3,3,3])
 			pulse = example_pulse()
