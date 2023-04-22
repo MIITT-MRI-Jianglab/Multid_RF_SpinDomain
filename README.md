@@ -34,3 +34,6 @@ Demos
 - How transverse magnetization rotate with different spin-domain parameters:
   - The experiment is `EX_transverse_rotation_illustration.py`. 
   - Considered different value of $\beta^2$ with norm equals 1 produces the rotation in transverse plane. For example, green denotes the initial transverse magnetization, red denotes the rotated magnetization, and blue denotes the computed rotation axis from them. ![](https://github.com/MIITT-MRI-Jianglab/MRIPulse/blob/main/EX_results/EX_transverse_rotation_illustration.png) 
+
+
+## Acknowledgements
