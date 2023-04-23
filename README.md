@@ -24,7 +24,7 @@ The basic functions for describing the spin behaviors and simulations including 
 
 ## Demos
 Demos
-- `EX_pulse_design_3d.py`
+- `EX_pulse_design_3d.py`: script for design of 3D refocusing pulse
 
 ## Additional experiments
 - Compare methods for calculating derivative (for spin-domain simulation): 
