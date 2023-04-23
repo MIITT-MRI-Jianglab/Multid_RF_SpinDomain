@@ -13,6 +13,7 @@ from scipy import interpolate
 import mri
 import mriopt
 import mripul
+import mriutils
 
 # import my other python files
 # import sys
@@ -110,10 +111,10 @@ if __name__ == '__main__':
 
     # which block to run
     running_config = {
-        'initial_3d_simu': True,
-        'initial_spindomain_simu': True,
-        'optimization': True,
-        'final_test': True,
+        'initial_3d_simu': False,
+        'initial_spindomain_simu': False,
+        'optimization': False,
+        'final_test': False,
     }
 
     # --------------------------------------------------------------------
@@ -146,15 +147,18 @@ if __name__ == '__main__':
     # GPU, and others
     # =============================================================================
     print(' RF pulse design configuring '.center(50,'='))
-
-    SAVE_FIG = plot_config['save_fig']
+    # 
+    # cpu or gpu
     if sys_config['gpu'] < 0:
         device = 'cpu'
     else:
         device = "cuda:0" if torch.cuda.is_available() else "cpu"
     device = torch.device(device)
-    print('>> device =',device)
     pulse_requirements['device'] = device
+    print('>> device =',device)
+    # 
+    # whether save figures
+    SAVE_FIG = plot_config['save_fig']
 
 
     # Get initialization pulse:
@@ -230,7 +234,7 @@ if __name__ == '__main__':
     pulse.show_info()
     # whether to plot something:
     if plot_config['initial_pulse']>0:
-        mri.plot_pulse(rf,gr,dt,picname='pictures/mri_pic_opt_pulse_init.png',save_fig=SAVE_FIG)
+        mri.plot_pulse(rf,gr,dt,picname='pictures/mri_pic_opt_pulse_init.png',savefig=SAVE_FIG)
     if plot_config['initial_kspace']>0:
         mripul.plot_kspace(gr,Nt,dt,case='excitation',save_fig=SAVE_FIG)
         kspace = mripul.get_kspace(Nt,dt,gr,case='excitation') #(1/cm)
@@ -253,9 +257,31 @@ if __name__ == '__main__':
     # -------------------------------------------------------
     fov = pulse_requirements['fov']
     dim = pulse_requirements['dim']
+    cube = mri.Build_SpinArray(fov=fov,dim=dim,device=device)
+    cube.show_info()
 
     # Get B0-map and B1-map
     # -------------------------------------------------------
+    B0map,loc_x,loc_y,loc_z = mriutils.load_initial_b0map(initial_config['B0map'])
+    B0map = cube.map_interpolate_fn(B0map,loc_x,loc_y,loc_z)
+
+    B1map,loc_x,loc_y,loc_z = mriutils.load_initial_b1map(initial_config['B1map'])
+    print(np.max(B1map))
+    print('B1map', B1map.shape, np.count_nonzero(B1map==np.nan))
+    B1map = cube.map_interpolate_fn(B1map,loc_x,loc_y,loc_z)
+
+    cube.set_B0map(B0map)
+    cube.set_B1map(B1map)
+
+    cube.show_info()
+
+    # 
+    mri.plot_cube_slices(cube,cube.kappa,picname='pictures/initial_b1map.png',savefig=SAVE_FIG)
+    mri.plot_cube_slices(cube,cube.df,picname='pictures/initial_b0map.png',savefig=SAVE_FIG)
+
+    # exit(0)
+
+
     def load_initial_b0map():
         # Adding B0 map (off-resonance)
         try:
