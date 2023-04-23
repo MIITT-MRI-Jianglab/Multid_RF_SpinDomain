@@ -37,3 +37,6 @@ Demos
 
 
 ## Acknowledgements
+This work is inspired by and takes reference of
+- https://github.com/tianrluo/AutoDiffPulses
+- https://github.com/mikgroup/sigpy
