@@ -17,7 +17,7 @@ My running environment
 
 ## General description
 The basic functions for describing the spin behaviors and simulations including spin-domain simulation are provided in `mri.py`. Other files provided different utilities, and a breif description is as follows.
-- `mri.py`: provides definition of basic class, e.g. Spin, SpinArray, Pulse, Signal. It also provides simulation functions with autodifferentiation.
+- `mri.py`: provides definition of basic class, e.g. `Spin`, `SpinArray`, `Pulse`, `Signal`. It also provides simulation functions with autodifferentiation.
 - `mriopt.py`: provides solver for optimizing the object loss function. 
 
 
