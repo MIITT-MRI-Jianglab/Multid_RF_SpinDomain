@@ -26,6 +26,7 @@ The basic functions for describing the spin behaviors and simulations including 
 Demos
 
 **Demo: design of 3D refocusing pulse**
+- `EXPre_fake_maps.py`: generate fake B0,B1 maps to represent measured field inhomogeneity and B1 transmission inhomogeneity.
 - `EX_pulse_design_3d.py`: script for design of 3D refocusing pulse
 
 ## Additional experiments
