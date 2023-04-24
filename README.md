@@ -24,6 +24,8 @@ The basic functions for describing the spin behaviors and simulations including 
 
 ## Demos
 Demos
+
+**Demo: design of 3D refocusing pulse**
 - `EX_pulse_design_3d.py`: script for design of 3D refocusing pulse
 
 ## Additional experiments
