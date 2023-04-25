@@ -102,6 +102,10 @@ def abloss_c_fn(xr,xi,yr,yi,weight=None,case='l2'):
         l = torch.sum((xr-yr).abs()+(xi-yi).abs())
     if case == 'weighted_l1':
         l = torch.sum(((xr-yr).abs() + (xi-yi).abs())*weight)
+    if case == 'complex_l1':
+        l = torch.sum(torch.sqrt((xr-yr)**2 + (xi-yi)**2))
+    if case == 'weighted_complex_l1':
+        l = torch.sum(torch.sqrt((xr-yr)**2 + (xi-yi)**2)*weight)
     if case == 'angle':
         l = -torch.sum(xr*yr + xi*yi)
     if case == 'weighted_angle':
@@ -1649,21 +1653,28 @@ class Spindomain_opt_solver:
         m = torch.max(torch.diff(seq,dim=1).abs())/dt
         return m
     # functions for recording history
-    def addinfo_fn(self,time0,lossvalue):
-        self.optinfos['time_hist'].append(time()-time0)
+    def addinfo_fn(self,timedur,lossvalue,roi_err=np.nan):
+        self.optinfos['time_hist'].append(timedur)
         self.optinfos['loss_hist'].append(lossvalue.item())
+        self.optinfos['roi_err_hist'].append(roi_err.item())
         return
     def optinfo_add(self,name_list,var_list):
         for n,v in zip(name_list,var_list):
             if n not in self.optinfos.keys():
                 self.optinfos[n] = v
             else:
-                print('[error] add optinfos error... existing field... ')
+                print('[error] add optinfos error... already existing field... {}'.format(n))
+    def optinfo_additem(self,name,var):
+        if name not in self.optinfos.keys():
+            self.optinfos[name] = var
+        else:
+            print('[error] add optinfos error... already existing field... {}'.format(name))
     # def optinfo_update_requirements(self,requirements):
     #     self.optinfos['rfmax'] = requirements['rfmax']
 
     # line search functions
     def linesearch_rf(self,lr,rf,gr,currentloss,loss_fn,rf_grad,rf_d):
+        '''backtracking linesearch of rf'''
         c = 1e-6
         for _ in range(20):
             tmprf = rf + lr*rf_d
@@ -1676,6 +1687,7 @@ class Spindomain_opt_solver:
         # print('\t lr =',lr)
         return lr,newloss
     def linesearch_gr(self,lr,rf,gr,currentloss,loss_fn,gr_grad,gr_d):
+        '''linesearch of gr'''
         c = 5*1e-7
         for _ in range(20):
             tmpgr = gr + lr*gr_d
@@ -1690,7 +1702,7 @@ class Spindomain_opt_solver:
         # print('\t lr =',lr)
         return lr,newloss
     def linesearch_together(self,lr,rf,gr,currentloss,loss_fn,rf_grad,gr_grad,rf_d,gr_d):
-        '''done'''
+        '''backtracking line search of rf and gr together. --- done'''
         c = 1e-6
         for _ in range(20):
             tmprf = rf + lr*rf_d
@@ -1706,6 +1718,8 @@ class Spindomain_opt_solver:
         # print('\t lr =',lr)
         return lr,newloss
     def linesearch_arctan_rf(self,lr,trfmag,rfang,ts,currentloss,loss_fn,rf_grad,rf_d):
+        '''linesearch when doing arctan transformation
+        #NOTE not used in the end'''
         c = 1e-6
         d = rf_d.reshape(2,-1)
         for _ in range(20):
@@ -1720,6 +1734,7 @@ class Spindomain_opt_solver:
         # print('\t lr =',lr)
         return lr,newloss
     def golden_linesearch(self,a,b,fun,delta):
+        '''golden ratio line search'''
         lam = a + 0.382*(b-a)
         mu = a + 0.618*(b-a)
         for _ in range(30):
@@ -1742,6 +1757,7 @@ class Spindomain_opt_solver:
             print(a,b)
         return lam
     def easylinesearch(self,a,b,fun,N=100):
+        '''search smallest point within [a,b] of fun(x)'''
         plsit = torch.linspace(a,b,N)
         fstar = fun(a)
         pstar = a
@@ -1803,12 +1819,12 @@ class Spindomain_opt_solver:
         self.sk_list = []
         self.yk_list = []
         self.pk_list = []
-    def rf_update(self):
-        return
-    def gr_update(self):
-        return
-    def rfgr_update(self):
-        pass
+    # def rf_update(self):
+    #     return
+    # def gr_update(self):
+    #     return
+    # def rfgr_update(self):
+    #     pass
     # def gd_step(self,rf,gr,rf_grad,gr_grad):
     def cond_check(self,k,niter,case='skip_first'):
         if case == 'skip_first':
@@ -1828,20 +1844,21 @@ class Spindomain_opt_solver:
             return True
         else:
             return False
-    def estimate_new_target_para(self,tr,ti,para_r,para_i,foi_idx):
-        r = tr[foi_idx].sum()
-        i = ti[foi_idx].sum()
+    def estimate_new_target_para(self,tr,ti,para_r,para_i,roi_idx):
+        '''estimate new target para for ROI'''
+        r = tr[roi_idx].sum()
+        i = ti[roi_idx].sum()
         m = torch.sqrt(r**2 + i**2)
-        print(r.dtype,i.dtype,m.dtype)
-        print(foi_idx.dtype)
-        print(para_r.dtype)
+        # print(r.dtype,i.dtype,m.dtype)
+        # print(foi_idx.dtype)
+        # print(para_r.dtype)
         if m == 0:
-            para_r[foi_idx] = -1.
-            para_i[foi_idx] = 0.
+            para_r[roi_idx] = -1.
+            para_i[roi_idx] = 0.
         else:
-            para_r[foi_idx] = (r/m).item()
-            para_i[foi_idx] = (i/m).item()
-        print('\t>> new target: beta^2 =({},{})'.format(para_r[foi_idx[0]],para_i[foi_idx[0]]))
+            para_r[roi_idx] = (r/m).item()
+            para_i[roi_idx] = (i/m).item()
+        # print('\t>> new target: beta^2 =({},{})'.format(para_r[roi_idx[0]],para_i[roi_idx[0]]))
         return para_r,para_i
     def gr_dir_mask(self,d,len=20):
         len = int(len/2)
@@ -1864,59 +1881,79 @@ class Spindomain_opt_solver:
     # main optimization process:
     def optimize(self,spinarray,pulse,para_target,loss_fn,loss_para_fn,requirements):
         '''
-        optimization process
+        optimization process, 
+        - spinarray
+        - pulse
+        - loss_fn(real,imag,tarreal,tarimag,weight): compute loss
+        - loss_para_fn(areal,aimag,breal,bimag): translate the simulation result to parameters
+        - requirements: dictionary
         '''
         # get info from requirements:
-        device = requirements['device']
-        self.device = requirements['device']
-
-        Nt,dt,rf,gr = pulse.Nt,pulse.dt,pulse.rf,pulse.gr
-        rfmax,gmax,smax = requirements['rfmax'],requirements['gmax'],requirements['smax']
+        # -----------------------------------------------
+        print('| requirements:')
+        # print(requirements.keys())
+        # for k in requirements.keys():
+        #     print('|\t',k)  
         
-        print('\t',Nt,dt,rf.shape,gr.shape,rfmax,gmax,smax)
+        def check_req_var(requ,namespace,default_val):
+            '''function read values in requirements'''
+            val = requ.get(namespace)
+            if val==None:
+                val = default_val
+            return val
+        
+        Nt,dt,rf,gr = pulse.Nt,pulse.dt,pulse.rf,pulse.gr
         # print('max rf change:',self.max_change(rf,dt).item())
 
+        device = requirements['device']
+        rfmax,gmax,smax = requirements['rfmax'],requirements['gmax'],requirements['smax']
         
-        lossweight = requirements['lossweight'] # loss weighting
         # optimization parameters setting:
         niter = requirements['niter']
         rf_niter = requirements['rf_niter']
         gr_niter = requirements['gr_niter']
-        rf_niter_increase = requirements['rf_niter_increase']
+        rf_niter_increase = check_req_var(requirements,'rf_niter_increase',False)
+        rfloop_case = check_req_var(requirements,'rfloop_case','all')  #'all'
+        grloop_case = check_req_var(requirements,'grloop_case','all')  #'skip_last'
+        # 
         lr_rf_init = 1.0
         lr_gr_init = 1.0
         lr_init = 1.0
+        # 
         rf_algo = requirements['rf_algo']
         gr_algo = requirements['gr_algo']
-        rf_modification = requirements['rf_modification'] # ['noise','shrink',]
+        rf_modification = check_req_var(requirements,'rf_modification','none')  # ['noise','shrink',]
         rf_modify_back = requirements['rf_modify_back']
-        rfloop_case = requirements['rfloop_case'] #'all'
-        grloop_case = requirements['grloop_case'] #'skip_last'
+        # 
+        roi_idx = requirements['roi_index']
+        target_foi_idx = requirements['target_foi_idx']
+        lossweight = requirements['lossweight'] # loss weighting
+        # 
         show_details = True
         show_details_rfstep = 1
         show_details_grstep = 1
-        target_foi_idx = requirements['target_foi_idx']
+        
         
         # saved to the solver:
         self.target_para_r = requirements['target_para_r']
         self.target_para_i = requirements['target_para_i']
+        self.device = requirements['device']
+
         
         estimate_new_target_cutoff = 3
-        try:
-            if requirements['estimate_new_target'] == True:
-                estimate_new_target = True
-            else:
-                estimate_new_target = False
-        except:
-            estimate_new_target = False
+        estimate_new_target = check_req_var(requirements,'estimate_new_target',False)
 
         # some infos add to optinfos
-        self.optinfo_add(['rfmax','gmax','smax','niter','rf_niter','gr_niter','rf_algo','gr_algo','rfloop_case','grloop_case','rf_modification'],
-                    [rfmax,gmax,smax,niter,rf_niter,gr_niter,rf_algo,gr_algo,rfloop_case,grloop_case,rf_modification])
-        self.optinfos['loss_fn'] = requirements['loss_fn']
-        self.optinfos['pulse_type'] = requirements['pulse_type']
-        self.optinfos['spin_num'] = spinarray.num
+        self.optinfo_add(['rfmax','gmax','smax','rf_algo','gr_algo','loss_fn',
+                        'niter','rf_niter','gr_niter',
+                        'rfloop_case','grloop_case','rf_modification'],
+                    [rfmax,gmax,smax,rf_algo,gr_algo,requirements['loss_fn'],
+                    niter,rf_niter,gr_niter,
+                    rfloop_case,grloop_case,rf_modification])
+        self.optinfo_additem('gpu',requirements['gpu'])
+        self.optinfo_additem('spin_num',spinarray.num)
         self.optinfos['roi_target'] = [self.target_para_r[target_foi_idx[0]].item(),self.target_para_i[target_foi_idx[0]].item()]
+        self.optinfos['pulse_type'] = requirements['pulse_type']
         self.optinfos['fov'] = requirements['fov']
         self.optinfos['dim'] = requirements['dim']
         self.optinfos['roi_shape'] = requirements['roi_shape']
@@ -1928,39 +1965,53 @@ class Spindomain_opt_solver:
         self.optinfos['transition_width'] = requirements['transition_width']
         self.optinfos['estimate_new_target'] = estimate_new_target
         self.optinfos['estimate_new_target_cutoff'] = estimate_new_target_cutoff
-        self.optinfos['estimate_new_target'] = requirements['estimate_new_target']
+        self.optinfos['initial_roi_target'] = [self.target_para_r[roi_idx[0]].item(), self.target_para_i[roi_idx[0]].item()]
+        self.optinfos['final_roi_target'] = [self.target_para_r[roi_idx[0]].item(), self.target_para_i[roi_idx[0]].item()]
 
 
         # display requirements:
         if True:
-            print(''.center(20,'-'))
-            print('spin number: {}'.format(self.optinfos['spin_num']))
-            print('rf_algo: {},\tgr_algo: {}'.format(rf_algo,gr_algo))
-            print('niter: {}, rf_niter: {}, gr_niter: {}'.format(niter,rf_niter,gr_niter))
-            print('in addition, rf loop: {}, gr loop: {}'.format(rfloop_case,grloop_case))
-            print('between rf and gr: rf modification: [{}]'.format(rf_modification))
-            print('loss fun: {}'.format(self.optinfos['loss_fn']))
-            print(''.center(20,'-'))
+            print(''.center(40,'-'))
+            print('| rf:',rf.shape, ', gr:',gr.shape)
+            print('| dt:',dt,',rfmax:',rfmax,', gmax:',gmax,', smax:',smax)
+            print(''.center(40,'-'))
+            print('| spin number: {}'.format(self.optinfos['spin_num']))
+            print('| rf_algo: {},\tgr_algo: {}'.format(rf_algo,gr_algo))
+            print('| niter: {}, rf_niter: {}, gr_niter: {}'.format(niter,rf_niter,gr_niter))
+            print('|\tin addition, rf loop: {}, gr loop: {}'.format(rfloop_case,grloop_case))
+            print('|\tbetween rf and gr: rf modification: [{}]'.format(rf_modification))
+            print('|\tin opt, estimate new target:',estimate_new_target)
+            print('| loss fun: {}'.format(self.optinfos['loss_fn']))
+            print(''.center(40,'-'))
         
         
+
+        # Construct functions for loss and error
+        # ------------------------------------------------------------------------------
         def total_loss(rf,gr,target_para_r,target_para_i):
+            '''total loss fucntion'''
             a_real,a_imag,b_real,b_imag = mri.spinorsim(spinarray,Nt,dt,rf,gr,device=device)
             para_r,para_i = loss_para_fn(a_real,a_imag,b_real,b_imag)
             loss = loss_fn(para_r,para_i,target_para_r,target_para_i,lossweight)
             return loss
-        def arctan_total_loss(trfmag,rfang,ts):
-            rf = transform_rf_back(trfmag,rfang,rfmax)
-            gr = transform_gr_back(ts,dt,smax)
-            a_real,a_imag,b_real,b_imag = mri.spinorsim(spinarray,Nt,dt,rf,gr,device=device)
-            para = loss_para_fn(a_real,a_imag,b_real,b_imag)
-            loss = loss_fn(para,para_target,lossweight)
-            return loss
-        def roi_error_fn(rf,gr,target_para_r,target_para_i,target_foi_idx):
-            # l1 error within ROI
+        # def arctan_total_loss(trfmag,rfang,ts):
+        #     rf = transform_rf_back(trfmag,rfang,rfmax)
+        #     gr = transform_gr_back(ts,dt,smax)
+        #     a_real,a_imag,b_real,b_imag = mri.spinorsim(spinarray,Nt,dt,rf,gr,device=device)
+        #     para = loss_para_fn(a_real,a_imag,b_real,b_imag)
+        #     loss = loss_fn(para,para_target,lossweight)
+        #     return loss
+        def roi_error_innerfn(para_r,para_i,target_para_r,target_para_i,roi_idx):
+            '''compute ROI error if already has simulation results'''
+            err = torch.sqrt((para_r-target_para_r)**2 + (para_i-target_para_i)**2)
+            # err = torch.abs(para_r-target_para_r) + torch.abs(para_i-target_para_i)
+            err = torch.sum(err[roi_idx])/roi_idx.size(0)
+            return err
+        def roi_error_fn(rf,gr,target_para_r,target_para_i,roi_idx):
+            '''error within ROI per spin'''
             a_real,a_imag,b_real,b_imag = mri.spinorsim(spinarray,Nt,dt,rf,gr,device=device)
             para_r,para_i = loss_para_fn(a_real,a_imag,b_real,b_imag)
-            err = torch.abs(para_r-target_para_r) + torch.abs(para_i-target_para_i)
-            err = torch.sum(err[target_foi_idx])/target_foi_idx.size(0)
+            err = roi_error_innerfn(para_r,para_i,target_para_r,target_para_i,roi_idx)
             return err
         # def total_loss(rf,k,target_para_r,target_para_i):
         #     # gr = kspace2gr(k)
@@ -1968,18 +2019,35 @@ class Spindomain_opt_solver:
         #     para_r,para_i = loss_para_fn(a_real,a_imag,b_real,b_imag)
         #     loss = loss_fn(para_r,para_i,target_para_r,target_para_i,lossweight)
         #     return loss
-        if rf_algo in ['arctan_LBFGS','arctan_LBFGS_']:
-            total_loss = arctan_total_loss
-        
-        
+        # if rf_algo in ['arctan_LBFGS','arctan_LBFGS_']:
+        #     total_loss = arctan_total_loss
 
-        # Initial simulation and objective
-        # ------------------------------------------------
-        # a_real,a_imag,b_real,b_imag = mri.spinorsim(spinarray,Nt,dt,rf,gr,device=device)
-        # para_r,para_i = loss_para_fn(a_real,a_imag,b_real,b_imag)
-        # loss = loss_fn(para_r,para_i,self.target_para_r,self.target_para_r,lossweight)
+        # def print_details(header)
+        def print_details(name='  ',nitr=None,subitr=None,loss=None,roi_err=None,para_r=None,para_i=None,timedur=None,header=False):
+            if header:
+                print('------------------------------------------------')
+                print('|  | iteration | loss | roi err | beta^2 | time ')
+                print('------------------------------------------------')
+            else:
+                s = '|'+name+'|'
+                s = s+' -:' if nitr==None else s+' {} :'.format(nitr)
+                s = s+'- |' if subitr==None else s+' {} |'.format(subitr)
+                s = s+' - |' if loss==None else s+' {:.10f} \t|'.format(loss)
+                s = s+' - |' if roi_err==None else s+' {:.5f} |'.format(roi_err)
+                if (para_r!=None) & (para_i!=None):
+                    s = s+' ({:.5f},{:.5f}) |'.format(para_r,para_i)
+                else:
+                    s = s+' (-,-) |'
+                s = s+'' if timedur==None else s+' {:.2f} s'.format(timedur)
+                print(s)
+            return
+
+
+        # Initial objective value and error
+        # -------------------------------------------------------------------------------
         with torch.no_grad():
             loss = total_loss(rf,gr,self.target_para_r,self.target_para_i)
+            roi_err = roi_error_fn(rf,gr,self.target_para_r,self.target_para_i,roi_idx)
             # 
             self.optinfos['init_rf'] = np.array(rf.tolist())
             self.optinfos['init_gr'] = np.array(gr.tolist())
@@ -1987,15 +2055,14 @@ class Spindomain_opt_solver:
             self.optinfos['init_dt'] = dt
             self.optinfos['time_hist'] = [0.0]
             self.optinfos['loss_hist'] = [loss.item()]
+            self.optinfos['roi_err_hist'] = [roi_err.item()]
+            
             
             # print the initial loss:
-            print('initial loss =',loss.item())
-
-        torch.cuda.empty_cache() # helps with memory
-
-
-        # ===================== optimization =============================
-        starttime = time()
+            print('| initial loss = {}, ROI error = {}, beta^2 = ({},{})'.format(loss.item(),
+                                                                                roi_err.item(),
+                                                                                self.target_para_r[roi_idx[0]],
+                                                                                self.target_para_i[roi_idx[0]]))
 
         # new target: for refocusing
         if estimate_new_target:
@@ -2004,7 +2071,21 @@ class Spindomain_opt_solver:
                 para_r,para_i = loss_para_fn(ar,ai,br,bi)
                 self.target_para_r,self.target_para_i = self.estimate_new_target_para(para_r,para_i,self.target_para_r,self.target_para_i,target_foi_idx)
                 loss = total_loss(rf,gr,self.target_para_r,self.target_para_i)
-                print('\tloss after new beta^2:',loss.item())
+                roi_err = roi_error_fn(rf,gr,self.target_para_r,self.target_para_i,roi_idx)
+                # print('\tloss after new beta^2:',loss.item())
+                # print('| ({},{})'.format(self.target_para_r[roi_idx[0]],self.target_para_i[roi_idx[0]]))
+                print_details(header=True)
+                print_details(loss=loss,roi_err=roi_err,para_r=self.target_para_r[roi_idx[0]],
+                    para_i=self.target_para_i[roi_idx[0]])
+        
+        torch.cuda.empty_cache() # helps with memory
+
+        # print(self.optinfos.keys())
+
+        # return pulse, {}
+
+        # ===================== optimization =============================
+        starttime = time()        
 
         # variable preparation:
         if rf_algo in ['arctan_LBFGS','arctan_LBFGS_','arctan_CG']: # arctan transform methods
@@ -2023,7 +2104,7 @@ class Spindomain_opt_solver:
             # NOTE: since I didn't use LBFGS in the end, the above block is not used in final design.
         else:
             rf.requires_grad = gr.requires_grad = True
-        
+        # rf.requires_grad = gr.requires_grad = True
 
 
         # optimization:
@@ -2049,6 +2130,7 @@ class Spindomain_opt_solver:
                 if self.cond_check(k,niter,case=rfloop_case):
                 # if self.cond_check(k,niter,case='skip_first'):
                 # if k>0: # k>0,skip the first update of rf
+                    print_details(header=True)
                     for rf_iter in range(rf_niter):
                         if rf_algo == 'AmplitudeSearch':
                             with torch.no_grad():
@@ -2137,79 +2219,54 @@ class Spindomain_opt_solver:
                             loss = total_loss(rf,gr)
                             # note: this is using defualt solver in Pytorch
                         if rf_algo == 'arctan_LBFGS_':
-                            loss = arctan_total_loss(trfmag,rfang,ts)
-                            loss.backward()
-                            rf_grad = torch.cat((trfmag.grad,rfang.grad))
-                            ts_grad = ts.grad
-                            # print(rf_grad.shape)
-                            with torch.no_grad():
-                                if rf_iter == 0:
-                                    self.rf_grad_prev = rf_grad
-                                    d = self.lbfgs_dir(rf_grad)
-                                    # lr_rf = 1e-3
-                                    lr_rf,loss = self.linesearch_arctan_rf(lr_rf_init,trfmag,rfang,ts,loss,arctan_total_loss,rf_grad,d)
-                                    sk = lr_rf*d
-                                    skm = sk.view_as(rf)
-                                    trfmag.add_(skm[0,:])
-                                    rfang.add_(skm[1,:])
-                                else:
-                                    yk = rf_grad - self.rf_grad_prev
-                                    self.rf_grad_prev = rf_grad
-                                    self.skykpk_memory_update(sk,yk)
-                                    d = self.lbfgs_dir(rf_grad)
-                                    lr_rf,loss = self.linesearch_arctan_rf(lr_rf_init,trfmag,rfang,ts,loss,arctan_total_loss,rf_grad,d)
-                                    # lr = 1e-2
-                                    # update the variables:
-                                    sk = lr_rf*d
-                                    skm = sk.view_as(rf)
-                                    trfmag.add_(skm[0,:])
-                                    rfang.add_(skm[1,:])
-                            # note: this is self-implemented
+                            # loss = arctan_total_loss(trfmag,rfang,ts)
+                            # loss.backward()
+                            # rf_grad = torch.cat((trfmag.grad,rfang.grad))
+                            # ts_grad = ts.grad
+                            # # print(rf_grad.shape)
+                            # with torch.no_grad():
+                            #     if rf_iter == 0:
+                            #         self.rf_grad_prev = rf_grad
+                            #         d = self.lbfgs_dir(rf_grad)
+                            #         # lr_rf = 1e-3
+                            #         lr_rf,loss = self.linesearch_arctan_rf(lr_rf_init,trfmag,rfang,ts,loss,arctan_total_loss,rf_grad,d)
+                            #         sk = lr_rf*d
+                            #         skm = sk.view_as(rf)
+                            #         trfmag.add_(skm[0,:])
+                            #         rfang.add_(skm[1,:])
+                            #     else:
+                            #         yk = rf_grad - self.rf_grad_prev
+                            #         self.rf_grad_prev = rf_grad
+                            #         self.skykpk_memory_update(sk,yk)
+                            #         d = self.lbfgs_dir(rf_grad)
+                            #         lr_rf,loss = self.linesearch_arctan_rf(lr_rf_init,trfmag,rfang,ts,loss,arctan_total_loss,rf_grad,d)
+                            #         # lr = 1e-2
+                            #         # update the variables:
+                            #         sk = lr_rf*d
+                            #         skm = sk.view_as(rf)
+                            #         trfmag.add_(skm[0,:])
+                            #         rfang.add_(skm[1,:])
+                            # # NOTE: this is self-implemented
+                            pass
                         if rf_algo == 'arctan_CG':
                             pass
-                            
-                        # loss = total_loss(rf,gr)
-                        # loss.backward()
-                        # rf_grad = rf.grad
-                        # gr_grad = gr.grad
-                        # with torch.no_grad():
-                        #     if False: # FGD
-                        #         lr_rf,loss = self.linesearch_rf(lr_rf_init,rf,gr,loss,total_loss,rf_grad,-rf_grad)
-                        #         rf = rf - lr_rf*rf_grad
-                        #         rf_prev = rf
-                        #         # 
-                        #         rf = rf + 0.1*(rf - rf_prev)
-                        #     if False: # FW
-                        #         v = -rfmax*torch.nn.functional.normalize(rf_grad,dim=0)
-                        #         d = v-rf
-                        #         # print('\t\tmax rf change:',max_change(rf).item(),'max d change:',max_change(d).item())
-                        #         # print('\t\t',(0.1-max_change(rf))/max_change(d))
-
-                        #         # different constraints for step size:
-                        #         # lr_rf_max = (0.1-max_change(rf))/max_change(d)
-                        #         # lr_rf = 2/(rf_itr+2)
-                        #         lr_rf_max = 1.0
-
-                        #         # line search:
-                        #         lr_rf,loss = self.linesearch_rf(lr_rf_init,rf,gr,loss,total_loss,rf_grad,d)
-                        #         rf = rf + lr_rf*d
-                        #     if False: # AFW
-                        #         pass
-                        #     if False: # conditional Newton
-                        #         pass
+                        
+                        timedur = time() - starttime
+                        rf = rf.detach()
+                        gr = gr.detach()
+                        
                         with torch.no_grad():
-                            # save to optinfos:
-                            self.addinfo_fn(time0=starttime,lossvalue=loss)
+                            # estimate of error within ROI
+                            roi_err = roi_error_fn(rf,gr,self.target_para_r,self.target_para_i,roi_idx)
+
+                            # save optimization info to optinfos:    
+                            self.addinfo_fn(timedur=timedur,lossvalue=loss,roi_err=roi_err)
+                            
                             if show_details & (((rf_iter+1)%show_details_rfstep) == 0):
                                 # print('\t\tmemory: {}'.format(len(self.sk_list)))
-                                print('\t(rf)--> {}, loss:'.format(rf_iter),loss.item())
-                            #NOTE: save optimization info
-                        rf = rf.detach()
-                        if True:
-                            with torch.no_grad():
-                                roi_err = roi_error_fn(rf,gr,self.target_para_r,self.target_para_i,target_foi_idx)
-                                print('\t\tROI error:',roi_err.item())
-                            # NOTE: this is a estimate of error within ROI
+                                # print('\t(rf)--> {}, loss:'.format(rf_iter),loss.item())
+                                print_details(name='rf',nitr=k,subitr=rf_iter,loss=loss,roi_err=roi_err,
+                                    para_r=self.target_para_r[roi_idx[0]],para_i=self.target_para_i[roi_idx[0]],timedur=timedur)
                         
                         # new target: for refocusing
                         if estimate_new_target & (k<estimate_new_target_cutoff):
@@ -2217,10 +2274,19 @@ class Spindomain_opt_solver:
                                 ar,ai,br,bi = mri.spinorsim(spinarray,Nt,dt,rf,gr,device=device)
                                 para_r,para_i = loss_para_fn(ar,ai,br,bi)
                                 self.target_para_r,self.target_para_i = self.estimate_new_target_para(para_r,para_i,self.target_para_r,self.target_para_i,target_foi_idx)
-                                loss_ = total_loss(rf,gr,self.target_para_r,self.target_para_i)
-                                print('\tloss after new beta^2:',loss_.item())
-                                self.optinfos['roi_target'] = [self.target_para_r[target_foi_idx[0]].item(),self.target_para_i[target_foi_idx[0]].item()]
-                        
+                                self.optinfos['final_roi_target'] = [self.target_para_r[target_foi_idx[0]].item(),self.target_para_i[target_foi_idx[0]].item()]
+                                
+                                # compute new loss:
+                                loss = loss_fn(para_r,para_i,self.target_para_r,self.target_para_i,lossweight)
+                                # loss_ = total_loss(rf,gr,self.target_para_r,self.target_para_i)
+                                # print('\tloss after new beta^2:',loss_.item())
+                                
+                                # compute new ROI error
+                                roi_err = roi_error_innerfn(para_r,para_i,self.target_para_r,self.target_para_i,roi_idx)
+
+                                print_details(nitr=k,subitr=rf_iter,loss=loss,roi_err=roi_err,
+                                    para_r=self.target_para_r[roi_idx[0]],para_i=self.target_para_i[roi_idx[0]])
+
                         # reprepare the variables' gradient:
                         if rf_algo in ['arctan_LBFGS_']:
                             trfmag.grad = rfang.grad = None
@@ -2246,7 +2312,7 @@ class Spindomain_opt_solver:
 
             # between rf and gr update:
             # -----------------------------
-            if True:
+            if False:
                 if self.cond_check(k,niter,case='skip_last'): # some modifications through the optimization procedure
                     if rf_modification == 'none':
                         print('\t\t----------')
@@ -2320,6 +2386,7 @@ class Spindomain_opt_solver:
             if True:
                 if self.cond_check(k,niter,case=grloop_case): # k<niter-1,skip in the last loop
                 # if self.cond_check(k,niter,case='skip_last'): # k<niter-1,skip in the last loop
+                    print_details(header=True)
                     for gr_iter in range(gr_niter):
                         if gr_algo == 'GD':
                             loss = total_loss(rf,gr,self.target_para_r,self.target_para_i)
@@ -2394,41 +2461,57 @@ class Spindomain_opt_solver:
                                     sk = lr_gr*d.view(-1)
                                     gr.add_(lr_gr*d)
                         
+                        timedur = time()-starttime
+                        gr = gr.detach()
+                        rf = rf.detach()
                         
                         # additiaonl steps after updating:
+                        
                         with torch.no_grad():
-                            # save opt infos:
-                            self.addinfo_fn(time0=starttime,lossvalue=loss)
+                            # estimate ROI error
+                            roi_err = roi_error_fn(rf,gr,self.target_para_r,self.target_para_i,roi_idx)
+
+                            # save opt infos:    
+                            self.addinfo_fn(timedur=timedur,lossvalue=loss,roi_err=roi_err)
                             if show_details & (((gr_iter+1)%show_details_grstep) == 0):
                                 # print('\t\tmemory: {}'.format(len(self.sk_list)))
-                                print('\t(gr)--> {}, loss:'.format(gr_iter),loss.item())
-                        gr = gr.detach()
-                        if True:
-                            with torch.no_grad():
-                                roi_err = roi_error_fn(rf,gr,self.target_para_r,self.target_para_i,target_foi_idx)
-                                print('\t\tROI error:',roi_err.item())
-                            # NOTE: this is a estimate of error within ROI
+                                # print('\t(gr)--> {}, loss:'.format(gr_iter),loss.item())
+                                print_details('gr',nitr=k,subitr=gr_iter,loss=loss,roi_err=roi_err,
+                                    para_r=self.target_para_r[roi_idx[0]],para_i=self.target_para_i[roi_idx[0]],timedur=timedur)
+
                         with torch.no_grad():
-                            if False:
-                                # smopthing:
-                                gr = gradient_smooth(gr,smax,dt)
+                            # if False:
+                            #     # smopthing:
+                            #     gr = gradient_smooth(gr,smax,dt)
+
                             # new target: for refocusing
                             if estimate_new_target & (k<estimate_new_target_cutoff):
                                 ar,ai,br,bi = mri.spinorsim(spinarray,Nt,dt,rf,gr,device=device)
                                 para_r,para_i = loss_para_fn(ar,ai,br,bi)
                                 self.target_para_r,self.target_para_i = self.estimate_new_target_para(para_r,para_i,self.target_para_r,self.target_para_i,target_foi_idx)
+                                self.optinfos['final_roi_target'] = [self.target_para_r[target_foi_idx[0]].item(),self.target_para_i[target_foi_idx[0]].item()]
+                                
+                                # compute new loss
                                 loss = total_loss(rf,gr,self.target_para_r,self.target_para_i)
-                                print('\tloss after new beta^2:',loss.item())
-                                self.optinfos['roi_target'] = [self.target_para_r[target_foi_idx[0]].item(),self.target_para_i[target_foi_idx[0]].item()]
+                                # print('\tloss after new beta^2:',loss.item())
+
+                                # compute new ROI err
+                                roi_err = roi_error_innerfn(para_r,para_i,self.target_para_r,self.target_para_i,roi_idx)
+
+                                print_details(nitr=k,subitr=gr_iter,loss=loss,roi_err=roi_err,
+                                    para_r=self.target_para_r[roi_idx[0]],para_i=self.target_para_i[roi_idx[0]],timedur=None)
+
                             # reprepare the variables' gradients:
                             if gr_algo in ['FW','GD','LBFGS']:
                                 rf.grad = None
                                 rf.requires_grad = True
                                 gr.grad = None
                                 gr.requires_grad = True
+
                         # termination:
                         # if self.termination_cond():
                         #     break
+
                     # After the gradient update loops:
                     if rf_modify_back:
                         if rf_modification in ['noise','noisy_shrink']:
@@ -2469,6 +2552,8 @@ class Spindomain_opt_solver:
                 rf.requires_grad = True
                 gr.grad = None
                 gr.requires_grad = True
+        
+        # print(self.optinfos.keys())
 
         # Output the final results:
         pulse = mri.Pulse(rf,gr,dt,device=device)
@@ -3137,19 +3222,35 @@ def window_GD(spinarray,pulse,Mtarget,loss_fn,requirements):
 # plot functions
 # --------------------------------------------
 def plot_optinfo(optinfos,picname='tmppic_optinfo.png',title='optimization',savefig=False):
-    plt.figure()
-    LogPlot = False
+    fig, axs = plt.subplots(2, 1)
+    LogPlot = True
+    
+    # loss curve
     if LogPlot:
-        plt.semilogy(optinfos['time_hist'],optinfos['loss_hist'],
+        axs[0].semilogy(optinfos['time_hist'],optinfos['loss_hist'],
             marker='.',markersize=10,ls='--',label='loss')
     else:
-        plt.plot(optinfos['time_hist'],optinfos['loss_hist'],
+        axs[0].plot(optinfos['time_hist'],optinfos['loss_hist'],
             marker='.',markersize=10,ls='--',label='loss')
-        plt.text(optinfos['time_hist'][0],optinfos['loss_hist'][0],str(optinfos['loss_hist'][0]),fontsize=8)
-        plt.text(0.8*optinfos['time_hist'][-1],1.5*optinfos['loss_hist'][-1],str(optinfos['loss_hist'][-1]),fontsize=8)
-    plt.legend()
-    plt.xlabel('time(s)')
-    plt.title(title)
+    axs[0].text(optinfos['time_hist'][0],optinfos['loss_hist'][0],str(optinfos['loss_hist'][0]),fontsize=8)
+    axs[0].text(0.8*optinfos['time_hist'][-1],1.5*optinfos['loss_hist'][-1],str(optinfos['loss_hist'][-1]),fontsize=8)
+    axs[0].legend()
+    # axs[0].set_xlabel('time(s)')
+    axs[0].set_ylabel('total loss')
+    axs[0].set_title(title)
+    axs[0].grid(True)
+    
+    # error curve
+    if optinfos.get('roi_err_hist') != None:
+        axs[1].plot(optinfos['time_hist'],optinfos['roi_err_hist'],
+            marker='.',markersize=10,ls='--',label='ROI err',color='green')
+        axs[1].text(optinfos['time_hist'][0],optinfos['roi_err_hist'][0],str(optinfos['roi_err_hist'][0]),fontsize=8)
+        axs[1].text(0.8*optinfos['time_hist'][-1],1.5*optinfos['roi_err_hist'][-1],str(optinfos['roi_err_hist'][-1]),fontsize=8)
+        axs[1].set_xlabel('time(s)')
+        axs[1].set_ylabel('ROI error per spin')
+        axs[1].legend()
+        axs[1].grid(True)
+
     if savefig:
         print('save fig ... | '+picname)
         plt.savefig(picname)

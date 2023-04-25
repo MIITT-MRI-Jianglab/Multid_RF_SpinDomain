@@ -1,6 +1,6 @@
 # Basic functions and definitions, including simulations
 # author: jiayao
-
+# 
 # Acknowledgements:
 # this work has inspired and take reference of: 
 # - https://github.com/tianrluo/AutoDiffPulses
@@ -187,6 +187,7 @@ class Pulse:
 	'''rf:(2*Nt)(mT), gr:(3*Nt)(mT/m)'''
 	def __init__(self,rf=None,gr=None,dt=1.0,device=torch.device("cpu")) -> None:
 		self.device = device
+		self.dtype = torch.float32
 		self.Nt = 10 # time points
 		self.dt = dt # ms
 		self._set_rf(rf)
@@ -214,18 +215,121 @@ class Pulse:
 			print('length gr != rf')
 		return
 	def rf_energymeasure(self):
+		''''''
 		p = torch.sum(self.rf**2)*self.dt
 		return p
 	def get_duration(self):
 		'''(ms)'''
 		return self.dt*self.Nt
-	def get_kspace(self):
+	def get_kspace(self,case='excitation',gamma=42.48):
 		'''
 		get excitation kspace (1/cm)
+
+		gamma:(MHz/T), gr:(3*Nt)(mT/m), dt:(ms)
+
+		output: kspace (1/cm)
 		'''
-		return
+
+		# TODO to double-check
+		if case == 'excitation':
+			kt = torch.cumsum(self.gr,dim=1) #(3*Nt)
+			# kt = torch.cat((torch.zeros((3,1),device=device),kt),dim=1) #(3*(Nt+1))
+			kt = kt - kt[:,-1].reshape(3,1) #make final be 0
+			# MHz/T * mT/m * ms = 1/m = 1/(100cm)
+			kt = -(gamma*self.dt*kt)*100 # 1/cm
+			# kt = kt/(torch.pi*2)
+		elif case == 'imaging':
+			kt = torch.cumsum(self.gr,dim=1)
+			kt = torch.cat((torch.zeros((3,1),device=self.device),kt),dim=1) #(3*(Nt+1))
+			kt = gamma*kt*self.dt/100 # 1/cm
+			# kt = kt/(2*torch.pi)
+		else:
+			pass
+		# print(kt.max())
+
+		return kt
 	def change_dt(self,newdt):
-		'''method changing the time resolution'''
+		'''change of time resolution, (ms)
+		
+		use method = 'nearest'
+		'''
+		# print('>> Change of time resolution')
+		if self.dt != newdt:
+			Nt_new = math.floor(self.dt*(self.Nt-1)/newdt)+1
+			# print(Nt_new)
+			
+			gr_old = np.array(self.gr.tolist())
+			rf_old = np.array(self.rf.tolist())
+			told = self.dt*np.arange(self.Nt) #(Nt*)(ms)
+			tnew = np.arange(Nt_new)*newdt
+			# print(tnew.shape)
+			# print(told[-4:])
+			# print(tnew[-4:])
+			
+			# Interpolate gradient
+			gr_new = np.zeros((3,Nt_new))
+			for ch in range(3):
+				gr_channl = gr_old[ch,:]
+				# print(told.shape,gr_channl.shape)
+				inter_gr_fn = interpolate.interp1d(told,gr_channl,kind='nearest')
+				gr_new[ch,:] = inter_gr_fn(tnew)
+			
+			# Interpolate RF
+			rf_new = np.zeros((2,Nt_new))
+			for ch in range(2):
+				rf_channl = rf_old[ch,:]
+				inter_rf_fn = interpolate.interp1d(told,rf_channl,kind='nearest')
+				rf_new[ch,:] = inter_rf_fn(tnew)
+
+
+			# duration = int(self.Nt*self.dt/newdt)*newdt
+			# duration = int(duration/0.01)*0.01
+			# tnew = np.arange(0,duration,0.010) #(ms)(dt=10us)
+			# Nt_new = len(tnew)
+			# # print('duration:',Nt*dt, Nt_new*0.01)
+			# # print(told[-5:])
+			# # print(Nt_new)
+			# # print('gr',gr.shape)
+			# # print('told',told.shape)
+			# # print(gr[0,:].shape)
+			# # print(tnew[-5:])
+
+			# gr_new = np.zeros((3,Nt_new))
+			# for ch in range(3):
+			# 	gr_channl = gr[ch,:]
+			# 	# print(told.shape,gr_channl.shape)
+			# 	inter_gr_fn = interpolate.interp1d(told,gr_channl,kind='nearest')
+			# 	gr_new[ch,:] = inter_gr_fn(tnew)
+			# # Interpolate RF
+			# tnew = np.arange(0,duration,dt_rf) #(ms)(dt=1us)
+			# Nt_new = len(tnew)
+			# rf_new = np.zeros((2,Nt_new))
+			# # print(tnew[-5:])
+			# for ch in range(2):
+			# 	rf_channl = rf[ch,:]
+			# 	inter_rf_fn = interpolate.interp1d(told,rf_channl,kind='nearest')
+			# 	rf_new[ch,:] = inter_rf_fn(tnew)
+
+			# print(rf_new.shape)
+			# print(gr_new.shape)
+			#
+			# G = np.kron(np.identity(gr_new.shape[1]),np.ones(5).reshape(-1,1))
+			# print(G[:20,:3])
+
+			# update
+			self.dt = newdt
+			self.Nt = Nt_new
+			self.rf = torch.tensor(rf_new,device=self.device, dtype=self.dtype)
+			self.gr = torch.tensor(gr_new,device=self.device, dtype=self.dtype)
+		return
+	def change_dt_pulse(self,newdt):
+		'''
+		method changing the time resolution
+
+		TODO: need to check the correctness
+
+		return a new pulse object
+		'''
 		Nt = math.floor(((self.Nt-1)*self.dt)/newdt)
 		print(Nt)
 		# interpolate rf and gr: 
@@ -384,6 +488,7 @@ class Spin:
 			kappa: 
 		"""
 		self.device = device
+		self.dtype = torch.float32
 		self.T1 = T1
 		self.T2 = T2
 		self.df = df # off-resonance, (Hz)
@@ -461,6 +566,7 @@ class SpinArray:
 			Mag: (3*num)(tensor)
 		'''
 		self.device = device
+		self.dtype = torch.float32
 		assert loc.shape[1] == len(T1)
 		assert len(T1)==len(T2)
 
@@ -557,7 +663,7 @@ class SpinArray:
 	def get_index_all(self):
 		'''return all the index'''
 		return torch.arange(self.num,device=self.device)
-	def get_index(self,xlim,ylim,zlim):
+	def get_index(self,xlim,ylim,zlim,inside=True):
 		''' get spins index (cube)
 		input:
 			xlim: [xmin,xmax](cm)
@@ -576,6 +682,9 @@ class SpinArray:
 		idx = torch.nonzero(idx)
 		idx = idx.reshape(-1)
 		# print(idx)
+		if inside==False:
+			idxall = self.get_index_all()
+			idx = index_subtract(idxall,idx)
 		return idx
 	def get_index_circle(self,center=[0.,0.],radius=1.,dir='z'):
 		'''get spins index (cylinder)
@@ -590,7 +699,7 @@ class SpinArray:
 		idx = torch.nonzero(idx)
 		idx = idx.reshape(-1)
 		return idx
-	def get_index_ball(self,center=[0.,0.,0.],radius=1.,):
+	def get_index_ball(self,center=[0.,0.,0.],radius=1.,inside=True):
 		'''get spins index (ball)
 		input:
 			center:(3*)(cm)
@@ -599,7 +708,28 @@ class SpinArray:
 			index
 		'''
 		dis_squ = (self.loc[0,:]-center[0])**2 + (self.loc[1,:]-center[1])**2 + (self.loc[2,:]-center[2])**2
-		idx = dis_squ <= radius**2
+		if inside:
+			idx = dis_squ <= radius**2
+		else:
+			idx = dis_squ > radius**2
+		idx = torch.nonzero(idx)
+		idx = idx.reshape(-1)
+		return idx
+	def get_index_ellipsoid(self,center=[0.,0.,0.],abc=[1.,1.,1.],inside=True):
+		'''get spins index (ellipsoid)
+		https://en.wikipedia.org/wiki/Ellipsoid
+		inpute:
+		- center: (3*)(cm)
+		- abc: (3*)(cm) ellipsoid parameters
+		output:
+		- index
+		'''
+		a,b,c = abc[0],abc[1],abc[2]
+		dis_squ = (self.loc[0,:]-center[0])**2/(a**2) + (self.loc[1,:]-center[1])**2/(b**2) + (self.loc[2,:]-center[2])**2/(c**2)
+		if inside:
+			idx = dis_squ <= 1.0
+		else:
+			idx = dis_squ > 1.0
 		idx = torch.nonzero(idx)
 		idx = idx.reshape(-1)
 		return idx
@@ -639,9 +769,10 @@ class SpinArray:
 			interp_fn = interpolate.RegularGridInterpolator((ref_x,ref_y,ref_z),ref_map)
 			# interpolations:
 			loc = np.array(self.loc.tolist())  # (3*num)
-			print(loc.shape)
+			# print(loc.shape,loc.dtype)
 			newmap = interp_fn(loc.T)
 			newmap = torch.tensor(newmap, device=self.device)
+			newmap = newmap.to(self.loc.dtype)
 
 			# loc,loc_x,loc_y,loc_z = mri.Build_SpinArray_loc(fov=fov,dim=dim)
 			# loc_x,loc_y,loc_z = loc_x.numpy(),loc_y.numpy(),loc_z.numpy()
@@ -691,6 +822,13 @@ class SpinArray:
 		else:
 			print('spin array not 3D matrix locations!')
 		return
+	def get_locgrid(self):
+		'''return loc: (x*y*z)'''
+		if self._if_as_grid():
+			return self.loc.reshape(3,self.dim[0],self.dim[1],self.dim[2])
+		else:
+			warnings.warn("SpinArray is not defined as 3d grid!")
+			return None
 	def get_T1grid(self):
 		'''return T1 as 3d matrix'''
 		if self._if_as_grid():
@@ -716,9 +854,17 @@ class SpinArray:
 			warnings.warn("SpinArray is not defined as 3d grid!")
 			return None
 	def get_dfgrid(self):
-		'''return gamma as 3d matrix'''
+		'''return df as 3d matrix'''
 		if self._if_as_grid():
 			df = self.df.reshape(self.dim[0],self.dim[1],self.dim[2])
+			return df
+		else:
+			warnings.warn("SpinArray is not defined as 3d grid!")
+			return None
+	def get_kappagrid(self):
+		'''return kappa as 3d matrix'''
+		if self._if_as_grid():
+			df = self.kappa.reshape(self.dim[0],self.dim[1],self.dim[2])
 			return df
 		else:
 			warnings.warn("SpinArray is not defined as 3d grid!")
@@ -896,8 +1042,8 @@ def Build_SpinArray(fov=[4,4,4],
 	dim=[3,3,3],
 	T1=1000.0,T2=100.0,
 	gamma=42.48,
-	B1map=None,
-	B0map=None,
+	B1map:torch.tensor=None,
+	B0map:torch.tensor=None,
 	device=torch.device('cpu')):
 	'''
 	build SpinArray which is (x*y*z) matrix, actually the SpinArray object
@@ -2276,6 +2422,7 @@ def spinorsim(spinarray,Nt,dt,rf,gr,device=torch.device('cpu'),details=False):
 	# compute the precession: (generated by gradient and B0 map)
 	offBz = spinarray.df/spinarray.gamma*1e-3 #(1*num)
 	offBz = offBz.reshape(num,1) #(num*1)
+	# print('== test:',offBz.dtype, gr.dtype, spinarray.loc.dtype)
 	Bz_hist = spinarray.loc.T@gr*1e-2 + offBz # mT/cm*cm = mT, Hz/(MHz/T) = 1e-3*mT  #(num*Nt)
 	pre_phi_hist = -dt*2*torch.pi*spinarray.gamma.reshape(num,-1)*Bz_hist #(num*Nt)
 	pre_aj_real_hist = torch.cos(pre_phi_hist/2)
@@ -2863,6 +3010,8 @@ def plot_images(imagelist,valuerange=None,title='',picname='tmppic.png',
 			if row_num*col_num < image_num:
 				row_num,col_num = 5,8 # 
 			if row_num*col_num < image_num:
+				row_num,col_num = 6,8 # 
+			if row_num*col_num < image_num:
 				print('too many slices for ploting! warning!')
 		fig, axs = plt.subplots(nrows=row_num, ncols=col_num, figsize=(14,10))
 		i = 0
@@ -3334,8 +3483,8 @@ data:
 # function that save the pulse and other information
 # ------------------------------------------------
 import scipy.io as spio
-def save_infos(pulse,logname,otherinfodic={}):
-	'''save the informations'''
+def save_pulse(pulse,logname,otherinfodic={}):
+	'''save the pulse informations, to .mat datafile'''
 	info = {}
 	if pulse != None:
 		rf = np.array(pulse.rf.tolist())
@@ -3347,9 +3496,16 @@ def save_infos(pulse,logname,otherinfodic={}):
 		info['info'] = 'rf:mT, gr:mT/m, dt:ms'
 	for k in otherinfodic.keys():
 		info[k] = otherinfodic[k]
-	print('>> save data...'+logname)
-	print('\tsaved infos:',info.keys())
+	print('| save data... | '+logname)
+	print('|\tsaved infos:',info.keys())
 	spio.savemat(logname,info)
+	return
+	# ----------------
+def save_matlabdata(filepath,vardic):
+	'''save the informations, to .mat datafile'''
+	print('| save data... | '+filepath)
+	print('|\tsaved infos:',vardic.keys())
+	spio.savemat(filepath,vardic)
 	return
 	# ----------------
 def read_data(filename):
@@ -3358,7 +3514,7 @@ def read_data(filename):
 	'''
 	try:
 		data = spio.loadmat(filename)
-		out = '>> read in data: {} | '.format(filename)
+		out = 'read in data: {} | '.format(filename)
 		try:
 			data['time_hist'] = data['time_hist'].reshape(-1)
 			data['loss_hist'] = data['loss_hist'].reshape(-1)
@@ -3585,6 +3741,10 @@ def example_4_pulse(device=torch.device('cpu'),savefig=False):
 	gr = 0.0*torch.zeros((3,Nt),device=device)
 	dt = 1.0 # ms
 	pulse = Pulse(rf=rf,gr=gr,dt=dt,device=device)
+	pulse.show_info()
+	# pulse2 = pulse.change_dt_pulse(0.5)
+	pulse.change_dt(0.6)
+	pulse.show_info()
 	# 
 	plot_pulse(pulse.rf,pulse.gr,pulse.dt,savefig=savefig)
 	plot_pulses([pulse,pulse],savefig=savefig)
@@ -4054,7 +4214,7 @@ if __name__ == "__main__":
 	# example_3_cube(device=dev)
 
 	# >> Example 4: build a pulse
-	# example_4_pulse(device=dev,savefig=savefig)
+	example_4_pulse(device=dev,savefig=savefig)
 
 	# >> Example 5: spin simulation
 	# example_5_spin_simulation(savefig=savefig)
