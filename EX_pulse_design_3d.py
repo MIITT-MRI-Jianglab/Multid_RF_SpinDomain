@@ -54,7 +54,7 @@ if __name__ == '__main__':
         'smax': 12*10, # smax:(mT/m/ms)(slew-rate)
 
         # object
-        'fov': [24,24,14], #[24,24,24], 
+        'fov': [24,24,10], #[24,24,24],  [24,24,14]
         'dim': [40,40,30], # matrix size [40,40,40] [45,45,35], [60,60,40] [58,58,40]
 
         # pulse requirements
@@ -62,12 +62,12 @@ if __name__ == '__main__':
         'gr_dt': 0.01,  #(ms)
         'Gm':None,  #matrix for gr
         'pulse_type': 'refocusing',  # 'excitation', 'inversion'
-        'roi_shape': 'MichiganM', # 'cube','sphere', 'MichiganM'
-        'roi_xyz':[[-3,3],[-3,3],[-3,3]], # region or radius according to the shape
+        'roi_shape': 'triangle', # 'cube','sphere', 'blockM'
+        'roi_offset':[3,3,0], # ROI offset
+        'roi_xyz':[[-3.5,3.5],[-3.5,3.5],[-3,3]], # region or radius according to the shape
         'roi_r': 2, # if roi_shape == sphere
-        'roi_offset':[0,0,0], # ROI offset
+        'weighting_amp':5,
         'weighting_sigma':8,
-        'weighting_amp':10,
         'transition_width': [0.5,0.5,0.5], #[0.4,0.4,0.4],
         'weighting_outside_custom':False, # wieghting shape
         # 'd1':0.01,
@@ -82,14 +82,19 @@ if __name__ == '__main__':
         'init_simple_readin': True,
         'init_pulse_folder': '/scratch/MRI_programs/RF_design_results_JY/',
         'init_pulse_file': 'pulse_opt_log_23mar25_1.mat',
+        # initial B0,B1 maps
         'set_B0map':False,
-        'B0map':'/scratch/JY_ImageRecon/Recon_Images/init_fake_B0map.mat',
+        'B0map':'/scratch/JY_ImageRecon/Recon_Images/init_B0map.mat',
         'set_B1map':False,
-        'B1map':'/scratch/JY_ImageRecon/Recon_Images/init_fake_B1map.mat',
-        'init_maps_region_adjust': False,
+        'B1map':'/scratch/JY_ImageRecon/Recon_Images/init_B1map.mat',
+
+        # mask for the object
+        'masked': False,
+        'object_mask': '/scratch/JY_ImageRecon/Recon_Images/mask.mat',
+
 
         # optimization parameters
-        'niter' : 6, #8
+        'niter' : 5, #8
         'rf_niter' : 5,
         'gr_niter' : 5,
         'rf_niter_increase' : False,
@@ -99,7 +104,7 @@ if __name__ == '__main__':
         'grloop_case' : 'skip_last',
         'rf_modification' : 'none',
         'rf_modify_back' : False,
-        'loss_fn' : 'weighted_l1',
+        'loss_fn' : 'weighted_complex_l1',  # 'weighted_l1'
         'estimate_new_target' : True,
 
         # others
@@ -134,6 +139,7 @@ if __name__ == '__main__':
     # initial_config['folder'] = SAVED_GROUP_FOLDER
     config['init_pulse_file'] = 'zoomedmri_demo-10x10x8-ex.mat' # (4.03ms)
     # config['init_pulse_file'] = 'mri_opt_log_tmp_1114_rf4.mat'
+    # config['init_pulse_file'] = 'pulse_opt_log_23apr25_M1.mat'
     # --------------------------------------------------------------------
     # initial_config['file'] = 'mri_opt_log_tmp.mat' 
 
@@ -231,7 +237,7 @@ if __name__ == '__main__':
 
 
 
-    # Build and :
+    # Build target spin array, and set B0,B1 maps, and object mask :
     # ===========================================================================
     print('\n'+' spin object '.center(50,'='))
     # cube info
@@ -250,28 +256,42 @@ if __name__ == '__main__':
         B0map,loc_x,loc_y,loc_z = mriutils.load_initial_b0map(config['B0map'])
         B0map = cube.map_interpolate_fn(B0map,loc_x,loc_y,loc_z)
         cube.set_B0map(B0map)
-        print('| --', B0map.dtype)
+        # print('| ---', B0map.dtype)
     if config['set_B1map']:
         B1map,loc_x,loc_y,loc_z = mriutils.load_initial_b1map(config['B1map'])
         # print(np.max(B1map))
         # print('B1map', B1map.shape, np.count_nonzero(B1map==np.nan))
         B1map = cube.map_interpolate_fn(B1map,loc_x,loc_y,loc_z)
         cube.set_B1map(B1map)
-        print('| --', B1map.dtype)
+        # print('| ---', B1map.dtype)
     
-    # in addition, ignore the region outside the object in the map
-    if config['init_maps_region_adjust']:
-        select_idx = cube.get_index_ellipsoid(center=[0,-1.5,-1],abc=[9,9,3.5],inside=False)
-        cube.kappa[select_idx] = 1.0
-        cube.df[select_idx] = 0.0
+    # in addition, get object mask
+    if config['masked']:
+        # select_idx = cube.get_index_ellipsoid(center=[0,-1.5,-1],abc=[9,9,3.5],inside=False)
+        # cube.kappa[select_idx] = 1.0
+        # cube.df[select_idx] = 0.0
+        # 
+        mask,loc_x,loc_y,loc_z = mriutils.load_object_mask(config['object_mask'])
+        mask = cube.map_interpolate_fn(mask,loc_x,loc_y,loc_z)
+        mask[torch.nonzero(mask>=0.5)] = 1
+        mask[torch.nonzero(mask<0.5)] = 0
+        cube.set_maskmap(mask)
+        # print(mask.unique())
+        
+        # extract masked target
+        cube = cube.get_unmasked()
+    else:
+        mask = torch.ones(dim,device=device)
     # -------------------------------------------------------
     # plot
-    mri.plot_cube_slices(cube,cube.kappa,picname='pictures/initial_b1map.png',savefig=SAVE_FIG)
-    mri.plot_cube_slices(cube,cube.df,picname='pictures/initial_b0map.png',savefig=SAVE_FIG)
+    mri.plot_cube_slices(cube,cube.kappa,masked=True,picname='pictures/initial_b1map.png',savefig=SAVE_FIG)
+    mri.plot_cube_slices(cube,cube.df,masked=True,picname='pictures/initial_b0map.png',savefig=SAVE_FIG)
+    mri.plot_cube_slices(cube,mask.view(-1),masked=False,picname='pictures/initial_mask.png',savefig=SAVE_FIG)
     # show cube info
     cube.show_info()
 
     # exit(0)
+    masked = config['masked']
 
 
 
@@ -282,11 +302,13 @@ if __name__ == '__main__':
     # Set the weights for different regions:
     # -------------------------------------------------------
     if config['roi_shape'] == 'cube':
+        print('| ROI shape:',config['roi_shape'])
+        print('| --- ROI offset:',config['roi_offset'])
         roi = config['roi_xyz']
         offset = config['roi_offset']
 
         # get index of spins of ROI:
-        x1,x2,y1,y2,z1,z2 = roi[0][0],roi[0][1],roi[1][0],roi[1][1],roi[2][0],roi[2][1]
+        x1,x2,y1,y2,z1,z2 = roi[0][0]+offset[0],roi[0][1]+offset[0],roi[1][0]+offset[1],roi[1][1]+offset[1],roi[2][0]+offset[2],roi[2][1]+offset[2]
         roi_idx = cube.get_index([x1,x2],[y1,y2],[z1,z2])
 
         # ----------- weighting ----------------
@@ -308,10 +330,10 @@ if __name__ == '__main__':
             # weighting_out = 0.5*torch.sqrt(distance_squ)
             weighting[outside_idx] = weighting_out[outside_idx]
         else:
-            weighting[outside_idx] = 2. #1.
+            weighting[outside_idx] = 1. #1.
         weighting[roi_idx] = weighting[roi_idx]*config['weighting_amp'] # 5.
         # 
-        print('| #non-ROI / #ROI :',(cube.num-roi_idx.shape[0])/roi_idx.shape[0])
+        print('| --- #non-ROI / #ROI :',(cube.num-roi_idx.shape[0])/roi_idx.shape[0])
 
         # assign transition band weighting:
         d = [m/2 for m in config['transition_width']]
@@ -349,13 +371,16 @@ if __name__ == '__main__':
         transition_idx = mri.index_subtract(larger_idx,inner_idx)
         weighting[transition_idx] = 0.0
         
-    elif config['roi_shape'] == 'MichiganM':
-        trajx = [-5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5,
+    elif config['roi_shape'] == 'blockM':
+        trajx = torch.tensor([-5, -5, -5, -5, -5, -5, -5, -5, -5, -5, -5,
                 -4, -3, -2, -1, 0, 1, 2, 3, 4,
-                5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5]
+                5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5])*1.3
+        trajx = trajx.tolist()
         trajy = [-5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5,
                 4, 3, 2, 1, 0, 1, 2, 3 ,4,
                 5, 4, 3, 2, 1, 0, -1, -2, -3, -4, -5]
+        # trajx = torch.linspace(-5,5,20)
+        # trajy = torch.ones(20)*5
         print('| build target region .. | ',len(trajx),len(trajy))
         # --------------------------------------
         def get_idx_along_traj(dx,dy,dz):
@@ -378,16 +403,86 @@ if __name__ == '__main__':
         weighting = torch.ones(cube.num,device=device)
         
         # assign weighting outside ROI:
-        outside_idx = mri.index_subtract(cube.get_index_all(),roi_idx)
-        weighting[outside_idx] = 1. #1.
-        weighting[roi_idx] = weighting[roi_idx]*config['weighting_amp'] # 5.
+        # outside_idx = mri.index_subtract(cube.get_index_all(),roi_idx)
+        # weighting[outside_idx] = 1. #1.
+        # weighting[roi_idx] = weighting[roi_idx]*config['weighting_amp'] # 5.
+        highwei_idx = cube.get_index(xlim=[-10,10],ylim=[-8,8],zlim=[-3,3])
+        weighting[highwei_idx] = config['weighting_amp']
         # 
         print('| #non-ROI / #ROI :',(cube.num-roi_idx.shape[0])/roi_idx.shape[0])
 
         # assign weighting of transition band:
         print('| \tcurrent no transition band assigned')
-        transition_idx = mri.index_subtract(larger_idx,inner_idx)
+        transition_idx = mri.index_subtract(larger_idx,roi_idx)
         weighting[transition_idx] = 0.0
+    
+    elif config['roi_shape'] == 'triangle':
+        trajx = torch.linspace(0,7,10)
+        trajx = torch.cat((trajx,torch.linspace(0,6.5,10)))
+        trajx = torch.cat((trajx,torch.linspace(0,6,10)))
+        trajx = torch.cat((trajx,torch.linspace(0,5.5,10)))
+        trajx = torch.cat((trajx,torch.linspace(0,5,10)))
+        trajx = torch.cat((trajx,torch.linspace(0,4.5,10)))
+        trajx = torch.cat((trajx,torch.linspace(0,4,10)))
+        trajx = torch.cat((trajx,torch.linspace(0,3.5,10)))
+        trajx = torch.cat((trajx,torch.linspace(0,3,10)))
+        trajx = torch.cat((trajx,torch.linspace(0,2.5,10)))
+        trajx = torch.cat((trajx,torch.linspace(0,2,10)))
+        trajx = torch.cat((trajx,torch.linspace(0,1.5,10)))
+        trajx = torch.cat((trajx,torch.linspace(0,1,10)))
+        trajx = torch.cat((trajx,torch.linspace(0,0.5,10)))
+        trajy = torch.ones(10)*0
+        trajy = torch.cat((trajy,torch.ones(10)*0.5))
+        trajy = torch.cat((trajy,torch.ones(10)*1))
+        trajy = torch.cat((trajy,torch.ones(10)*1.5))
+        trajy = torch.cat((trajy,torch.ones(10)*2))
+        trajy = torch.cat((trajy,torch.ones(10)*2.5))
+        trajy = torch.cat((trajy,torch.ones(10)*3))
+        trajy = torch.cat((trajy,torch.ones(10)*3.5))
+        trajy = torch.cat((trajy,torch.ones(10)*4))
+        trajy = torch.cat((trajy,torch.ones(10)*4.5))
+        trajy = torch.cat((trajy,torch.ones(10)*5))
+        trajy = torch.cat((trajy,torch.ones(10)*5.5))
+        trajy = torch.cat((trajy,torch.ones(10)*6))
+        trajy = torch.cat((trajy,torch.ones(10)*6.5))
+        trajx = trajx.tolist()
+        trajy = trajy.tolist()
+        # trajx = torch.linspace(-5,5,20)
+        # trajy = torch.ones(20)*5
+        print('| build target region .. triangle | ',len(trajx),len(trajy))
+        # --------------------------------------
+        def get_idx_along_traj(dx,dy,dz):
+            cx,cy = trajx[0],trajy[0]
+            roi_idx = cube.get_index(xlim=[cx-dx,cx+dx],ylim=[cy-dy,cy+dy],zlim=[-dz,dz])
+            for t in range(len(trajx)):
+                cx,cy = trajx[t],trajy[t]
+                tmp_idx = cube.get_index(xlim=[cx-dx,cx+dx],ylim=[cy-dy,cy+dy],zlim=[-dz,dz])
+                roi_idx = mri.index_union(roi_idx,tmp_idx)
+            return roi_idx
+        dx,dy,dz = 0.4,0.4,3
+        roi_idx = get_idx_along_traj(dx,dy,dz)
+        # 
+        # d = 0.5
+        # dx,dy,dz = 2+d,2+d,3+d
+        # larger_idx = get_idx_along_traj(dx,dy,dz)
+        # dx,dy,dz = 2-d,2-d,3-d
+        # inner_idx = get_idx_along_traj(dx,dy,dz)
+        # ----------- weighting ----------------
+        weighting = torch.ones(cube.num,device=device)
+        
+        # assign weighting outside ROI:
+        # outside_idx = mri.index_subtract(cube.get_index_all(),roi_idx)
+        # weighting[outside_idx] = 1. #1.
+        weighting[roi_idx] = weighting[roi_idx]*config['weighting_amp'] # 5.
+        # highwei_idx = cube.get_index(xlim=[-10,10],ylim=[-8,8],zlim=[-3,3])
+        # weighting[highwei_idx] = config['weighting_amp']
+        # 
+        print('| #non-ROI / #ROI :',(cube.num-roi_idx.shape[0])/roi_idx.shape[0])
+
+        # assign weighting of transition band:
+        print('| \tcurrent no transition band assigned')
+        # transition_idx = mri.index_subtract(larger_idx,roi_idx)
+        # weighting[transition_idx] = 0.0
 
     else:
         print('Error: no recognized shape!')
@@ -398,13 +493,13 @@ if __name__ == '__main__':
     config['lossweight'] = weighting
     config['target_foi_idx'] = roi_idx
     config['roi_index'] = roi_idx
-    config['transition_index'] = transition_idx
+    # config['transition_index'] = transition_idx
     
     # plot of the weighting function:
     # -------------------------------------------------
     # plot of target
     if plot_config['weighting']:
-        mri.plot_cube_slices(cube,weighting,picname='pictures/opt_weighting.png',savefig=SAVE_FIG)
+        mri.plot_cube_slices(cube,weighting,masked=masked,picname='pictures/opt_weighting.png',savefig=SAVE_FIG)
     # plot of weighing in 1D
     if plot_config['weighting_1d']:
         tmppicname = 'pictures/opt_weighting_1d.png'
@@ -413,6 +508,8 @@ if __name__ == '__main__':
         plt.scatter(np.array(cube.loc[0,tmp_idx].tolist()), np.array(weighting[tmp_idx].tolist()))
         plt.savefig(tmppicname)
         print('save ... | '+tmppicname)
+    
+    exit(0)
     
 
     
@@ -430,7 +527,7 @@ if __name__ == '__main__':
     # -------------------------------------------------
     config['target_para_r'] = target_para_r
     config['target_para_i'] = target_para_i
-    print('--- target',target_para_r.dtype)
+    # print('--- target',target_para_r.dtype)
 
 
     # exit(0)
@@ -479,17 +576,17 @@ if __name__ == '__main__':
         print('\n'+' simulation '.center(50,'='))
         M = mri.blochsim(cube,Nt,dt,rf,gr,device=device)
         # 3D plot of 2D slices:
-        mri.plot_cube_slices(cube,M[0,:],picname='pictures/init_profile_Mx.png',savefig=SAVE_FIG)
-        mri.plot_cube_slices(cube,M[1,:],picname='pictures/init_profile_My.png',savefig=SAVE_FIG)
-        mri.plot_cube_slices(cube,M[2,:],picname='pictures/init_profile_Mz.png',savefig=SAVE_FIG)
+        mri.plot_cube_slices(cube,M[0,:],masked=masked,picname='pictures/init_profile_Mx.png',savefig=SAVE_FIG)
+        mri.plot_cube_slices(cube,M[1,:],masked=masked,picname='pictures/init_profile_My.png',savefig=SAVE_FIG)
+        mri.plot_cube_slices(cube,M[2,:],masked=masked,picname='pictures/init_profile_Mz.png',savefig=SAVE_FIG)
     if running_config['initial_spindomain_simu']: 
         print('\n'+' simulation '.center(50,'='))
         # simulation of spin-domain parameters:
         a,b = mri.slrsim_c(cube,Nt,dt,rf,gr,device=device)
         para = b**2
         # 3D plot of spin-domain parameters:
-        mri.plot_cube_slices(cube,para.abs(),valuerange=[-1,1],title=r'$|\beta^2|$',picname='pictures/init_profile_betasquare_mag.png',savefig=SAVE_FIG)
-        mri.plot_cube_slices(cube,para.angle(),valuerange=[-1,1],title=r'$\angle\beta^2$',picname='pictures/init_profile_betasquare_phase.png',savefig=SAVE_FIG)
+        mri.plot_cube_slices(cube,para.abs(),masked=masked,valuerange=[-1,1],title=r'$|\beta^2|$',picname='pictures/init_profile_betasquare_mag.png',savefig=SAVE_FIG)
+        mri.plot_cube_slices(cube,para.angle(),masked=masked,valuerange=[-3.15,3.15],title=r'$\angle\beta^2$',picname='pictures/init_profile_betasquare_phase.png',savefig=SAVE_FIG)
     
 
 
@@ -501,9 +598,13 @@ if __name__ == '__main__':
         loss_fn = lambda xr,xi,yr,yi,weight: mriopt.abloss_c_fn(xr,xi,yr,yi,weight,case=config['loss_fn'])
         
         # perform optimization:
+        '''
+        - the target para real and imag is in config
+        - 
+        '''
         target_para = 0
         solver = mriopt.Spindomain_opt_solver()
-        pulse,optinfos = solver.optimize(cube,pulse,target_para,loss_fn,loss_para_fn,config)
+        pulse,optinfos = solver.optimize(cube,pulse,loss_fn,loss_para_fn,config)
         # pulse,optinfos = solver.optimize_plus(cube,pulse,target_para,loss_fn,loss_para_fn,pulse_requirements)
         # exit(0)
 
@@ -528,7 +629,10 @@ if __name__ == '__main__':
     #         mri.save_pulse(pulse,logname=outputpath,otherinfodic={})
     
 
-    # show optimized pulse info
+    # show final/optimized pulse info
+    # ======================================================================
+    print()
+    print(' final pulse '.center(50,'='))
     Nt,dt,rf,gr = pulse.Nt,pulse.dt,pulse.rf,pulse.gr
     pulse = mri.Pulse(rf,gr,dt,device=device)
     pulse.show_info()
@@ -542,7 +646,7 @@ if __name__ == '__main__':
     if running_config['final_test']: 
         print()
         print(' final simu test '.center(50,'='))
-        test_cube = mri.Build_SpinArray(fov=fov,dim=[40,40,40],device=device)
+        test_cube = mri.Build_SpinArray(fov=fov,dim=[40,40,dim[2]],device=device)
         if config['set_B0map']: # set B0, B1 maps
             B0map,loc_x,loc_y,loc_z = mriutils.load_initial_b0map(config['B0map'])
             B0map = test_cube.map_interpolate_fn(B0map,loc_x,loc_y,loc_z)
@@ -572,7 +676,7 @@ if __name__ == '__main__':
                 a,b = mri.slrsim_c(test_cube,Nt,dt,rf,gr,device=device)
                 para = b**2
                 mri.plot_cube_slices(test_cube,para.abs(),valuerange=[-1,1],picname='pictures/opt_profile_end_betasquare_mag.png',savefig=SAVE_FIG)
-                mri.plot_cube_slices(test_cube,para.angle(),valuerange=[-1,1],picname='pictures/opt_profile_end_betasquare_phase.png',savefig=SAVE_FIG)
+                mri.plot_cube_slices(test_cube,para.angle(),valuerange=[-3.2,3.2],picname='pictures/opt_profile_end_betasquare_phase.png',savefig=SAVE_FIG)
         
 
         if False: # another way show profile error

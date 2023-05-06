@@ -564,6 +564,7 @@ class SpinArray:
 			kappa: (1*num) transmit B1 scaling factor
 			B1map: (1*num) transmit B1 scaling factor (old name)
 			Mag: (3*num)(tensor)
+			mask: (1*num)
 		'''
 		self.device = device
 		self.dtype = torch.float32
@@ -589,9 +590,12 @@ class SpinArray:
 		self.df = df*torch.ones(self.num,device=self.device)
 		self.kappa = B1kappa if B1kappa !=None else torch.ones(self.num,device=self.device)
 		# self.B1map = B1map if B1map != None else torch.ones(self.num,device=self.device)
+		self.mask = torch.ones(self.num,device=self.device)
+		self.mask_idx = torch.nonzero(self.mask>0.1).view(-1)
 
 		# wether to view as spin grid:
 		self._as_grid = False
+		self._grid_complete = False
 		self.fov = None # (3)(cm)
 		self.dim = None # (3)
 		self.grid_x = None
@@ -602,7 +606,7 @@ class SpinArray:
 		self.x_neighbor_index = None
 		self.y_neighbor_index = None
 		self.z_neighbor_index = None
-	def set_Mag(self,M): # [TODO]
+	def set_Mag(self,M,masked=False): # [TODO]
 		'''set all the magnetization to be the same
 		
 		M: (1*3) (list)
@@ -658,6 +662,18 @@ class SpinArray:
 		else:
 			self.T2[loc_idx] = torch.ones(tmp_num,device=self.device)*T2
 			return
+	def set_selected_mask(self,loc_idx,select=False):
+		tmp_num = len(loc_idx)
+		if tmp_num == 0:
+			return
+		else:
+			if select:
+				self.mask[loc_idx] = 1
+			else:
+				self.mask[loc_idx] = 0
+		self._update_mask_index()
+	def _update_mask_index(self):
+		self.mask_idx = torch.nonzero(self.mask>0.1).view(-1)
 	# methods that selected spins
 	# -----------------------------------------------------------------
 	def get_index_all(self):
@@ -764,6 +780,7 @@ class SpinArray:
 		output:
 			newmap (x*y*z) (tensor)
 		'''
+		# if True:
 		try:
 			# Interpolation function
 			interp_fn = interpolate.RegularGridInterpolator((ref_x,ref_y,ref_z),ref_map)
@@ -782,6 +799,7 @@ class SpinArray:
 			# B0map = torch.tensor(B0map,device=device).reshape(dim)
 
 			print('>> interpolate map',newmap.shape)
+		# else:
 		except:
 			init_fail = True
 			print('>> interpolation fails !!')
@@ -811,6 +829,18 @@ class SpinArray:
 			B1map = B1map.view(-1) if B1map != None else None
 			self.B1map = B1map
 			self.kappa = B1map
+		else:
+			warnings.warn("SpinArray is not defined as 3d grid!")
+		return
+	def set_maskmap(self,mask):
+		'''set mask
+
+		input: mask: (x*y*z)
+		'''
+		if self._if_as_grid():
+			mask = mask.view(-1) if mask != None else None
+			self.mask = mask
+			self._update_mask_index()
 		else:
 			warnings.warn("SpinArray is not defined as 3d grid!")
 		return
@@ -873,6 +903,7 @@ class SpinArray:
 	# ---------------------------------------------------------------------
 	def add_spin(self,spin): #[TODO]
 		self._as_grid = False
+		print("haven't implemented")
 		pass
 	def get_spin(self,index=0):
 		'''get a new Spin object from the SpinArray'''
@@ -886,13 +917,12 @@ class SpinArray:
 		spin.set_position(loc[0],loc[1],loc[2])
 		spin.set_Mag(self.Mag[:,index])
 		return spin
-	def get_cube(self,xlim,ylim,zlim):
-		'''
-		return a new SpinArray object, by specify the x,y,z limits
-		'''
-		# TODO: set the cube grid property in this
-		# actually, second thought, this is useless ...
-		idx = self.get_index(xlim,ylim,zlim)
+	def get_unmasked(self):
+		'''return a new spinarray with all mask > 0,
+		but dont change the 3d grid property'''
+		idx = torch.nonzero(self.mask>0).view(-1)
+		# print(idx.shape)
+		# print(self.mask.shape)
 		new_loc = self.loc[:,idx]
 		new_T1 = self.T1[idx]
 		new_T2 = self.T2[idx]
@@ -900,8 +930,41 @@ class SpinArray:
 		new_Mag = self.Mag[:,idx]
 		new_df = self.df[idx]
 		new_B1kappa = self.kappa[idx]
+		new_mask = self.mask[idx]
+		mask_idx = self.mask_idx
+		# print(self.Mag.shape)
+		# print(new_Mag.shape)
+		# print(new_gamma.shape)
+		fov,dim = self.fov,self.dim
+		grid_x,grid_y,grid_z = self.grid_x,self.grid_y,self.grid_z
+		slice_spin_idx = self.slice_spin_idx
 		new_spinarray = SpinArray(loc=new_loc, T1=new_T1, T2=new_T2, gamma=new_gamma,
 			M=new_Mag, df=new_df, B1kappa=new_B1kappa, device=self.device)
+		new_spinarray.mask = new_mask
+		new_spinarray.set_grid_properties(fov,dim,grid_x,grid_y,grid_z,slice_spin_idx)
+		new_spinarray.mask_idx = mask_idx
+		return new_spinarray
+	def get_masked_complete(self):
+		# TODO
+		return
+	def get_cube(self,xlim,ylim,zlim):
+		'''
+		return a new SpinArray object, by specify the x,y,z limits
+		'''
+		# TODO: set the cube grid property in this
+		# actually, second thought, this is useless ...
+		idx = self.get_index(xlim,ylim,zlim).view(-1)
+		new_loc = self.loc[:,idx]
+		new_T1 = self.T1[idx]
+		new_T2 = self.T2[idx]
+		new_gamma = self.gamma[idx]
+		new_Mag = self.Mag[:,idx]
+		new_df = self.df[idx]
+		new_B1kappa = self.kappa[idx]
+		new_mask = self.mask[idx]
+		new_spinarray = SpinArray(loc=new_loc, T1=new_T1, T2=new_T2, gamma=new_gamma,
+			M=new_Mag, df=new_df, B1kappa=new_B1kappa, device=self.device)
+		new_spinarray.mask = new_mask
 		return new_spinarray
 	def get_spins(self,spin_idx:torch.tensor):
 		'''
@@ -916,8 +979,10 @@ class SpinArray:
 		new_Mag = self.Mag[:,spin_idx]
 		new_df = self.df[spin_idx]
 		new_B1kappa = self.kappa[spin_idx]
+		new_mask = self.mask[spin_idx]
 		new_spinarray = SpinArray(loc=new_loc,T1=new_T1,T2=new_T2,gamma=new_gamma,
 			M=new_Mag,df=new_df,B1kappa=new_B1kappa,device=self.device)
+		new_spinarray.mask = new_mask
 		return new_spinarray
 	def delete_spins(self,spin_idx:torch.tensor):
 		'''
@@ -934,8 +999,10 @@ class SpinArray:
 		new_Mag = self.Mag[:,idx]
 		new_df = self.df[idx]
 		new_B1kappa = self.kappa[idx]
+		new_mask = self.mask[idx]
 		new_spinarray = SpinArray(loc=new_loc,T1=new_T1,T2=new_T2,gamma=new_gamma,
 			M=new_Mag,df=new_df,B1kappa=new_B1kappa,device=self.device)
+		new_spinarray.mask = new_mask
 		return new_spinarray
 	def plot_cube_with(self,parameters):
 		'''
@@ -960,6 +1027,7 @@ class SpinArray:
 		print('\tkappa(unit 1): \tmean={:.4f}, var={:.4f}, {}~{}'.format(self.kappa.mean(),self.kappa.var(),self.kappa.min(),self.kappa.max()))
 		# print('\tdf:',self.df)
 		# print('\tMag:',self.Mag)
+		print('\tmask:\t{}/{}'.format(torch.sum(self.mask),self.num))
 		print('\t>>\tas grid shape:',self._if_as_grid())
 		if self._if_as_grid():
 			print('\t\tFOV(cm):',self.fov,', dim:',self.dim)
@@ -1443,7 +1511,17 @@ blochsim_array = BlochSim_Array.apply
 
 # the final bloch simulation function, with custom backward
 # --------------------------------------------
-def blochsim(spinarray,Nt,dt,rf,gr,device=torch.device('cpu'),details=False):
+def blochsim(spinarray,Nt,dt,rf,gr,device=torch.device('cpu'),masked=False,details=False):
+	'''bloch simulation (implemented with auto-diff for more efficient backward)
+	rf:(2*N)(mT), gr:(3*N)(mT/m), dt:(ms)
+
+	output: Magnetization
+	'''
+	# extract unmasked spins
+	if masked:
+		spinarray = spinarray.get_unmasked()
+	# spinarray.show_info()
+
 	# compute effective B for all time points:
 	# >> write formula again:
 	# if False:
@@ -1480,7 +1558,7 @@ def blochsim(spinarray,Nt,dt,rf,gr,device=torch.device('cpu'),details=False):
 
 # Bloch simulation, only simulation, no custom backward
 # ----------------------------------
-def blochsim_(spinarray,Nt,dt,rf,gr,device=torch.device('cpu')):
+def blochsim_(spinarray,Nt,dt,rf,gr,device=torch.device('cpu'),masked=False):
 	"""
 	Bloch simulation for spin arrays
 	rf:(2*N)(mT), gr:(3*N)(mT/m), dt:(ms)
@@ -1488,6 +1566,11 @@ def blochsim_(spinarray,Nt,dt,rf,gr,device=torch.device('cpu')):
 	ouput:
 		M, M_total_hist
 	"""
+	# extract unmasked spins
+	if masked:
+		spinarray = spinarray.get_unmasked()
+	# spinarray.show_info()
+
 	# starttime = time()
 	num = spinarray.num
 	M = spinarray.Mag #(3*num)
@@ -1947,11 +2030,14 @@ def spinorsim_spin(spin,Nt,dt,rf,gr,device=torch.device('cpu'),details=False):
 
 # simulation functions of spin-domain rotation parameters
 # ---------------------------------------------
-def spinorsim_c(spinarray,Nt,dt,rf,gr,device=torch.device('cpu'),details=False):
+def spinorsim_c(spinarray,Nt,dt,rf,gr,device=torch.device('cpu'),masked=False,details=False):
 	'''
 	spinor simulation for spinarray, compute using complex number
 	rf:(2*Nt)(mT), gr:(3*Nt)(mT/m)
 	'''
+	if masked:
+		spinarray = spinarray.get_unmasked()
+
 	# if want to simulate smaller Nt
 	Nt_p = min(rf.shape[1],gr.shape[1])
 	if Nt > Nt_p:
@@ -2014,12 +2100,15 @@ def spinorsim_c(spinarray,Nt,dt,rf,gr,device=torch.device('cpu'),details=False):
 	b = bhist[:,-1]
 	# print('a,b:',a.shape,b.shape)
 	return a,b
-def spinorsim_2(spinarray,Nt,dt,rf,gr,device=torch.device('cpu'),details=False):
+def spinorsim_2(spinarray,Nt,dt,rf,gr,device=torch.device('cpu'),masked=False,details=False):
 	'''
 	treat all as real numbers, but not explict auto-diff
 	Beff_hist:(3*num*Nt), phi_hist:(num*Nt)
 	out: a_real:(num), a_imag:(num), b_real:(num), b_imag:(num)
 	'''
+	if masked:
+		spinarray = spinarray.get_unmasked()
+
 	# if want to simulate smaller Nt
 	Nt_p = min(rf.shape[1],gr.shape[1])
 	if Nt > Nt_p:
@@ -2100,7 +2189,7 @@ def spinorsim_2(spinarray,Nt,dt,rf,gr,device=torch.device('cpu'),details=False):
 		# print('-----------')
 	# return the final value
 	return a_real, a_imag, b_real, b_imag
-def spinorsim_(spinarray,Nt,dt,rf,gr,device=torch.device('cpu'),details=False):
+def spinorsim_(spinarray,Nt,dt,rf,gr,device=torch.device('cpu'),masked=False,details=False):
 	'''
 	a back up and modification, test for computing gradients
 
@@ -2108,6 +2197,9 @@ def spinorsim_(spinarray,Nt,dt,rf,gr,device=torch.device('cpu'),details=False):
 	Beff_hist:(3*num*Nt), phi_hist:(num*Nt)
 	out: a_real:(num), a_imag:(num), b_real:(num), b_imag:(num)
 	'''
+	if masked:
+		spinarray = spinarray.get_unmasked()
+
 	# if want to simulate smaller Nt
 	Nt_p = min(rf.shape[1],gr.shape[1])
 	if Nt > Nt_p:
@@ -2404,7 +2496,10 @@ class Spinorsim_SpinArray(torch.autograd.Function):
 		# output the grads:
 		return grad_spinarray,grad_Nt,grad_dt,grad_pre_aj_real_hist,grad_pre_aj_imag_hist,grad_nut_aj_real_hist,grad_nut_bj_real_hist,grad_nut_bj_imag_hist,grad_device
 spinorsim_spinarray = Spinorsim_SpinArray.apply
-def spinorsim(spinarray,Nt,dt,rf,gr,device=torch.device('cpu'),details=False):
+def spinorsim(spinarray,Nt,dt,rf,gr,device=torch.device('cpu'),masked=False,details=False):
+	if masked:
+		spinarray = spinarray.get_unmasked()
+
 	# if want to simulate smaller Nt
 	Nt_p = min(rf.shape[1],gr.shape[1])
 	if Nt > Nt_p:
@@ -3354,7 +3449,7 @@ def plot_distribution(value,picname='tmppic.png',savefig=False):
 	else:
 		plt.show()
 	return
-def plot_cube_slices(spinarraygrid,value,valuerange=None,title='',
+def plot_cube_slices(spinarraygrid,value,masked=False,valuerange=None,title='',
 		picname='tmppic_cube_slices.png',savefig=False):
 	"""
 	input:
@@ -3365,6 +3460,16 @@ def plot_cube_slices(spinarraygrid,value,valuerange=None,title='',
 	- picname: 
 	- savefig:  
 	"""
+	# if the cube has a mask
+	if masked:
+		num = spinarraygrid.dim[0]*spinarraygrid.dim[1]*spinarraygrid.dim[2]
+		# tmpvalue = torch.zeros(num,device=spinarraygrid.device)*float('nan')
+		tmpvalue = torch.zeros(num,device=spinarraygrid.device)
+		mask_idx = spinarraygrid.mask_idx
+		tmpvalue[mask_idx] = value
+		value = tmpvalue
+		# print(len(value))
+
 	slice_num = len(spinarraygrid.slice_spin_idx)
 	# M = torch.rand_like(M,device=device)
 	
@@ -3706,6 +3811,7 @@ def example_2_spinarray(device=torch.device('cpu')):
 	T2 = torch.ones(n,device=device)*100.0
 	spinarray = SpinArray(loc=loc,T1=T1,T2=T2,device=device)
 	spinarray.df = torch.tensor([10.,5.,0.,0.,0.],device=device)
+	spinarray.set_selected_mask([1,2],select=False)
 	spinarray.show_info()
 	print('select spins by locations: \t',spinarray.get_index([3,6],[0,1],[0,1]))
 	print('select sub-object ...')
@@ -3716,6 +3822,9 @@ def example_2_spinarray(device=torch.device('cpu')):
 	tmpsp = spinarray.delete_spins(torch.tensor([1]))
 	# tmpsp.show_info()
 	# print('\ttest selection pass')
+	print('use mask to select the spins')
+	tmpsp = spinarray.get_unmasked()
+	tmpsp.show_info()
 	return
 def example_3_cube(device=torch.device('cpu')):
 	print('\n'+''.center(40,'-'))
@@ -3724,7 +3833,11 @@ def example_3_cube(device=torch.device('cpu')):
 	fov = [4,4,2] # cm
 	dim = [3,3,5] 
 	cube = Build_SpinArray(fov=fov,dim=dim,device=dev, B1map=torch.randn(dim,device=dev))
+	cube.set_selected_mask([0,2,3,4],select=False)
 	cube.show_info()
+	# 
+	cubem = cube.get_unmasked()
+	cubem.show_info()
 	# 
 	print('test get some spins index within the cube ...')
 	idx = cube.get_index([-0.1,0.1],[-0.1,0.1],[-2.,2.])
@@ -3807,6 +3920,7 @@ def example_6_spinarray_bloch_simulation(device=torch.device('cpu'),savefig=Fals
 	offres = torch.tensor([10.,5.,0.,0.,0.],device=device)
 	#
 	spinarray = SpinArray(loc=loc,T1=T1,T2=T2,df=offres,device=device)
+	spinarray.set_selected_mask([0,1],select=False)
 	#
 	Nt = 1000
 	dt = 1.0 # ms
@@ -3814,9 +3928,9 @@ def example_6_spinarray_bloch_simulation(device=torch.device('cpu'),savefig=Fals
 	gr = 0.0*torch.zeros((3,Nt),device=device) 
 	gr[2,:] = torch.ones(Nt,device=device)*5 # mT/m
 	#
-	M,M_hist = blochsim_(spinarray,Nt,dt,rf,gr,device=device) # M_hist:(3*(Nt+1)) the toal signal
+	M,M_hist = blochsim_(spinarray,Nt,dt,rf,gr,device=device,masked=True) # M_hist:(3*(Nt+1)) the toal signal
 	print(M)
-	M = blochsim(spinarray,Nt,dt,rf,gr,device=device)
+	M = blochsim(spinarray,Nt,dt,rf,gr,device=device,masked=True)
 	print(M)
 	# plot_magnetization(M_hist[:,0,:],dt)
 	# print('plot of transverse signal')
@@ -3907,7 +4021,9 @@ def example_7_spinorsim(device=torch.device('cpu'),savefig=False):
 		T1 = torch.ones(n,device=device)*1000.0
 		T2 = torch.ones(n,device=device)*100.0
 		B1kappa = torch.ones(n,device=device)*0.1
+		maskidx = [0,1,2,3,4,5,6]
 		spinarray = SpinArray(loc=loc,T1=T1,T2=T2,B1kappa=B1kappa,device=device)
+		spinarray.set_selected_mask(maskidx,select=False)
 		spinarray.show_info()
 	#
 	Nt = 1000
@@ -3921,7 +4037,8 @@ def example_7_spinorsim(device=torch.device('cpu'),savefig=False):
 	print(a,b)
 	# sim method (complex):
 	starttime = time()
-	a,b = spinorsim_c(spinarray,Nt,dt,rf,gr,device=device)
+	a,b = spinorsim_c(spinarray,Nt,dt,rf,gr,device=device,masked=True)
+	print('result:',a.shape)
 	print('ar:',a.real[:4])
 	print('ai:',a.imag[:4])
 	print('br:',b.real[:4])
@@ -3929,7 +4046,8 @@ def example_7_spinorsim(device=torch.device('cpu'),savefig=False):
 	print('-> running time',time()-starttime)
 	# sim method 1:
 	starttime = time()
-	ar,ai,br,bi = spinorsim_(spinarray,Nt,dt,rf,gr,device=device)
+	ar,ai,br,bi = spinorsim_(spinarray,Nt,dt,rf,gr,device=device,masked=True)
+	print('result:',ar.shape)
 	print('ar:',ar[:4])
 	print('ai:',ai[:4])
 	print('br:',br[:4])
@@ -3937,7 +4055,8 @@ def example_7_spinorsim(device=torch.device('cpu'),savefig=False):
 	print('-> running time',time()-starttime)
 	# sim method 1 changed:
 	starttime = time()
-	ar,ai,br,bi = spinorsim_2(spinarray,Nt,dt,rf,gr,device=device)
+	ar,ai,br,bi = spinorsim_2(spinarray,Nt,dt,rf,gr,device=device,masked=True)
+	print('result:',ar.shape)
 	print('ar:',ar[:4])
 	print('ai:',ai[:4])
 	print('br:',br[:4])
@@ -3945,7 +4064,8 @@ def example_7_spinorsim(device=torch.device('cpu'),savefig=False):
 	print('-> running time',time()-starttime)
 	# sim method 2:
 	starttime = time()
-	ar,ai,br,bi = spinorsim(spinarray,Nt,dt,rf,gr,device=device)
+	ar,ai,br,bi = spinorsim(spinarray,Nt,dt,rf,gr,device=device,masked=True)
+	print('result:',ar.shape)
 	print('ar:',ar[:4])
 	print('ai:',ai[:4])
 	print('br:',br[:4])
@@ -4211,10 +4331,10 @@ if __name__ == "__main__":
 	# example_2_spinarray(device=dev)
 
 	# >> Example 3: build cube spin array using function
-	# example_3_cube(device=dev)
+	example_3_cube(device=dev)
 
 	# >> Example 4: build a pulse
-	example_4_pulse(device=dev,savefig=savefig)
+	# example_4_pulse(device=dev,savefig=savefig)
 
 	# >> Example 5: spin simulation
 	# example_5_spin_simulation(savefig=savefig)
