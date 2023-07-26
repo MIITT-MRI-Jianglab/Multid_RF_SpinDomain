@@ -223,11 +223,11 @@ class Pulse:
 		return self.dt*self.Nt
 	def get_kspace(self,case='excitation',gamma=42.48):
 		'''
-		get excitation kspace (1/cm)
+		get excitation kspace (1/cm) #TODO change to (1/m)
 
 		gamma:(MHz/T), gr:(3*Nt)(mT/m), dt:(ms)
 
-		output: kspace (1/cm)
+		output: kspace (1/m)
 		'''
 
 		# TODO to double-check
@@ -236,22 +236,28 @@ class Pulse:
 			# kt = torch.cat((torch.zeros((3,1),device=device),kt),dim=1) #(3*(Nt+1))
 			kt = kt - kt[:,-1].reshape(3,1) #make final be 0
 			# MHz/T * mT/m * ms = 1/m = 1/(100cm)
-			kt = -(gamma*self.dt*kt)*100 # 1/cm
+			kt = -(gamma*self.dt*kt) # 1/m
 			# kt = kt/(torch.pi*2)
 		elif case == 'imaging':
 			kt = torch.cumsum(self.gr,dim=1)
 			kt = torch.cat((torch.zeros((3,1),device=self.device),kt),dim=1) #(3*(Nt+1))
-			kt = gamma*kt*self.dt/100 # 1/cm
+			kt = gamma*kt*self.dt # 1/m
 			# kt = kt/(2*torch.pi)
 		else:
 			pass
 		# print(kt.max())
 
 		return kt
+	def get_slew_rate(self):
+		'''get the slew-rate (mT/m/ms)'''
+		srate = torch.diff(self.gr,dim=1)/self.dt # mT/m/ms
+		# add 0 for the beginning
+		srate = torch.cat((torch.zeros((3,1),device=srate.device),srate),dim=1)
+		return srate
 	def change_dt(self,newdt):
 		'''change of time resolution, (ms)
 		
-		use method = 'nearest'
+		use method = 'linear', 'nearest'
 		'''
 		# print('>> Change of time resolution')
 		if self.dt != newdt:
@@ -271,14 +277,14 @@ class Pulse:
 			for ch in range(3):
 				gr_channl = gr_old[ch,:]
 				# print(told.shape,gr_channl.shape)
-				inter_gr_fn = interpolate.interp1d(told,gr_channl,kind='nearest')
+				inter_gr_fn = interpolate.interp1d(told,gr_channl,kind='linear')
 				gr_new[ch,:] = inter_gr_fn(tnew)
 			
 			# Interpolate RF
 			rf_new = np.zeros((2,Nt_new))
 			for ch in range(2):
 				rf_channl = rf_old[ch,:]
-				inter_rf_fn = interpolate.interp1d(told,rf_channl,kind='nearest')
+				inter_rf_fn = interpolate.interp1d(told,rf_channl,kind='linear')
 				rf_new[ch,:] = inter_rf_fn(tnew)
 
 
@@ -378,6 +384,89 @@ class Pulse:
 		self.rf = torch.tensor(rf.tolist(),device=self.device)
 		self.gr = torch.tensor(gr.tolist(),device=self.device)
 		self.Nt = Nt
+		return
+	# plot function:
+	def plot(self,picname='pic_pulse.png',savefig=False):
+		'''
+		rf:(2*Nt)(mT/cm), gr:(3*Nt)(mT/m), dt:(ms)
+		'''
+		N = self.rf.shape[1]
+		rf = np.array(self.rf.tolist())
+		gr = np.array(self.gr.tolist())
+		srate = np.array(self.get_slew_rate().tolist())
+		kt = np.array(self.get_kspace().tolist())
+		time = np.arange(N)*self.dt
+
+		fig = plt.subplots(layout='constrained',figsize=(13,5))
+		ax1 = plt.subplot(4,2,1)
+		ax1.plot(time,np.abs(rf[0,:]),label='rf mag',lw=1)
+		ax1.set_ylabel('mT')
+		ax1.legend()
+
+		ax2 = plt.subplot(4,2,3)
+		ax2.plot(time,np.angle(rf[0,:]+1j*rf[1,:]),label='rf angle',lw=1)
+		ax2.set_ylabel('rad')
+		ax2.legend()
+		
+		ax3 = plt.subplot(4,2,5)
+		ax3.plot(time,gr[0,:],label='gr,x',lw=1)
+		ax3.plot(time,gr[1,:],label='gr,y',lw=1)
+		ax3.plot(time,gr[2,:],label='gr,z',lw=1)
+		ax3.set_ylabel('mT/m')
+		ax3.legend()
+
+		ax4 = plt.subplot(4,2,7)
+		ax4.plot(time,srate[0,:],label='x',lw=1)
+		ax4.plot(time,srate[1,:],label='y',lw=1)
+		ax4.plot(time,srate[2,:],label='z',lw=1)
+		ax4.set_ylabel('mT/m/ms')
+		ax4.legend()
+
+		ax5 = plt.subplot(4,2,(2,8),projection='3d')
+		ax5.plot(kt[0,:],kt[1,:],kt[2,:],label=r'k-trajectory $(cm^{-1})$')
+		# ax.plot((0,M[0,0]),(0,M[1,0]),(0,M[2,0]),linewidth=1,linestyle='--')
+		# ax.plot((0,M[0,-1]),(0,M[1,-1]),(0,M[2,-1]),linewidth=1,linestyle='--')
+		# ax.text(M[0,0],M[1,0],M[2,0],r'$k_0$',fontsize=8)
+		# ax.text(M[0,-1],M[1,-1],M[2,-1],r'end',fontsize=8)
+		ax5.plot(kt[0,0],kt[1,0],kt[2,0],marker='o',color='green')
+		ax5.plot(kt[0,-1],kt[1,-1],kt[2,-1],marker='o',color='red')
+		ax5.text(kt[0,0],kt[1,0],kt[2,0],r'start',fontsize=8)
+		ax5.text(kt[0,-1],kt[1,-1],kt[2,-1],r'end',fontsize=8)
+		ax5.legend()
+		# ax5.set_xlim(-1.1*maxkx,1.1*maxkx)
+		# ax5.set_ylim(-1.1*maxky,1.1*maxky)
+		# ax5.set_zlim(-1.1*maxkz,1.1*maxkz)
+		ax5.set_xlabel('kx')
+		ax5.set_ylabel('ky')
+		ax5.set_zlabel('kz')
+
+		# gs0 = fig.add_gridspec(1, 2)
+
+		# gs1 = gs0[0].subgridspec(4, 1)
+		# ax1 = fig.add_subplot(gs1[0])
+		# ax2 = fig.add_subplot(gs1[1])
+		# ax3 = fig.add_subplot(gs1[1])
+		# ax4 = fig.add_subplot(gs1[1])
+		# ax1.plot(time,rf[0,:],label='rf real',lw=1)
+		# ax1.plot(time,rf[1,:],label='rf imag',lw=1)
+		# ax1.set_ylabel('mT')
+		# ax1.legend()
+		# ax2.plot(time,gr[0,:],label='gr,x',lw=1)
+		# ax2.plot(time,gr[1,:],label='gr,y',lw=1)
+		# ax2.plot(time,gr[2,:],label='gr,z',lw=1)
+		# ax2.set_ylabel('mT/m')
+		# ax2.legend()
+
+		# plt.xlabel('time(ms)')
+		
+		# gs2 = gs0[1].subgridspec(1, 1)
+
+		# plt.tight_layout()
+		
+		if savefig:
+			plt.savefig(picname)
+		else:
+			plt.show()
 		return
 	def show_info(self):
 		print('>> Pulse:')
@@ -798,11 +887,11 @@ class SpinArray:
 			# B0map = interp_fn(loc)
 			# B0map = torch.tensor(B0map,device=device).reshape(dim)
 
-			print('>> interpolate map',newmap.shape)
+			# print('>> interpolate map',newmap.shape)
 		# else:
 		except:
 			init_fail = True
-			print('>> interpolation fails !!')
+			print('>> [Error] interpolation fails !!')
 			newmap = None
 		return newmap
 	def set_B0map(self,B0map):
@@ -894,11 +983,21 @@ class SpinArray:
 	def get_kappagrid(self):
 		'''return kappa as 3d matrix'''
 		if self._if_as_grid():
-			df = self.kappa.reshape(self.dim[0],self.dim[1],self.dim[2])
-			return df
+			kappa = self.kappa.reshape(self.dim[0],self.dim[1],self.dim[2])
+			return kappa
 		else:
 			warnings.warn("SpinArray is not defined as 3d grid!")
 			return None
+	def match_value_grid(self,value):
+		'''if cube has mask, then match value list to 3D grid'''
+		num = self.dim[0]*self.dim[1]*self.dim[2]
+		# num = self.num
+		# tmpvalue = torch.zeros(num,device=spinarraygrid.device)*float('nan')
+		tmpvalue = torch.zeros(num,device=self.device,dtype=value.dtype)
+		mask_idx = self.mask_idx
+		tmpvalue[mask_idx] = value
+		# value = tmpvalue
+		return tmpvalue
 	# Methods which new object created:
 	# ---------------------------------------------------------------------
 	def add_spin(self,spin): #[TODO]
@@ -1022,7 +1121,7 @@ class SpinArray:
 		# print('\tT1(ms):',self.T1.shape,',',self.T1.view(-1)[0])
 		# print('\tT2(ms):',self.T2.shape,',',self.T2.view(-1)[0])
 		print('\tgamma(MHz/T): mean={:.3f}, var={:.3f}, \t[#{}]'.format(self.gamma.mean(),self.gamma.var(),len(self.gamma)))
-		print('\tMag:\t',self.Mag.shape,',',self.Mag[:,0].tolist())
+		print('\tMag:\t{} x {},'.format(self.Mag.shape[0],self.Mag.shape[1]),self.Mag[:,0].tolist())
 		print('\tdf(Hz): \tmean={:.4f}, var={:.4f}, {}~{}'.format(self.df.mean(),self.df.var(),self.df.min(),self.df.max()))
 		print('\tkappa(unit 1): \tmean={:.4f}, var={:.4f}, {}~{}'.format(self.kappa.mean(),self.kappa.var(),self.kappa.min(),self.kappa.max()))
 		# print('\tdf:',self.df)
@@ -1237,6 +1336,12 @@ def test_buildobj():
 	plot_distribution(cube.loc[2,:],savefig=True)
 	return
 
+
+
+
+
+def calculate_flipangle(M):
+	return
 
 
 
@@ -3133,6 +3238,104 @@ def plot_images(imagelist,valuerange=None,title='',picname='tmppic.png',
 	else:
 		plt.show()
 	return
+def plot_images_asone(imagelist,valuerange=None,title='',picname='tmppic.png',
+		savefig=False):
+	'''input: 
+		imagelist: list of image (numpyarray)
+		valuerange: 
+		title:
+		picname:
+		savefig: wether to save figure
+	'''
+	image_num = len(imagelist)
+	if valuerange != None:
+		vmin,vmax = valuerange[0],valuerange[1]
+	else:
+		vmin,vmax = imagelist[0].min(),imagelist[0].max()
+		for image in imagelist:
+			vmintmp,vmaxtmp = image.min(),image.max()
+			vmin = min(vmin,vmintmp)
+			vmax = max(vmax,vmaxtmp)
+		vmin = vmin - 0.1*abs(vmin)
+		vmax = vmax + 0.1*abs(vmax)
+	row_num = 1
+	col_num = 1
+	if row_num*col_num == image_num:
+		plt.figure()
+		plt.imshow(imagelist[0],vmin=vmin,vmax=vmax)
+		plt.colorbar()
+	else:
+		x,y = imagelist[0].shape
+		if True:
+			# add to 2 column:
+			if row_num*col_num < image_num:
+				col_num = col_num + 1 # 1x2
+			# add to 3 column:
+			if row_num*col_num < image_num:
+				col_num = col_num + 1 # 1x3
+			# more than 3 images:
+			if row_num*col_num < image_num:
+				row_num = row_num + 1 # 2x3
+			if row_num*col_num < image_num:
+				row_num = row_num + 1 # 3x3
+			if row_num*col_num < image_num:
+				col_num = col_num + 1 # 3x4
+			if row_num*col_num < image_num:
+				col_num = col_num + 1 # 3x5
+			if row_num*col_num < image_num:
+				row_num = row_num + 1 # 4x5
+			if row_num*col_num < image_num:
+				row_num = row_num + 1 # 5x5
+			if row_num*col_num < image_num:
+				col_num = col_num + 1 # 5x6
+			if row_num*col_num < image_num:
+				row_num,col_num = 4,8 # 
+			if row_num*col_num < image_num:
+				row_num,col_num = 5,7 # 
+			if row_num*col_num < image_num:
+				row_num,col_num = 6,6 # 
+			if row_num*col_num < image_num:
+				row_num,col_num = 5,8 # 
+			if row_num*col_num < image_num:
+				row_num,col_num = 6,8 # 
+			if row_num*col_num < image_num:
+				print('too many slices for ploting! warning!')
+		fig, axs = plt.subplots(figsize=(15,10))
+		ext_x = x+1
+		ext_y = y+1
+		im_big = np.ones((row_num*ext_x,col_num*ext_y))*vmax
+		count = 0
+		for r in range(row_num):
+			for c in range(col_num):
+				im_big[r*ext_x:r*ext_x+x, c*ext_y:c*ext_y+y] = imagelist[count]
+				count += 1
+				if count == image_num:
+					break
+		im_big = im_big[:-1,:-1]
+		if valuerange == None:
+			pp = axs.imshow(im_big,vmin=vmin,vmax=vmax)
+			# pp = ax.imshow(image)
+			# print(image)
+		else:
+			vmin,vmax = valuerange[0],valuerange[1]
+			pp = axs.imshow(im_big,vmin=vmin,vmax=vmax)
+			# fig.colorbar(pp,ax=ax)
+			# ax.set_title()
+		# plt.tight_layout()
+		cbar = fig.colorbar(pp, ax=axs)
+		# ticklabs = cbar.ax.get_yticklabels()
+		# cbar.ax.set_yticklabels(ticklabs, fontsize=10)
+		pp.figure.axes[1].tick_params(axis="y", labelsize=31)
+		axs.axis('off')
+		# fig.colorbar(pp, ax=axs, orientation='horizontal', fraction=.1)
+		plt.title(title)
+		fig.patch.set_alpha(0.0)
+	if savefig:
+		print('save fig ... | '+picname)
+		plt.savefig(picname)
+	else:
+		plt.show()
+	return
 # ==========================================================================
 def plot_pulse(rf,gr,dt,picname='tmppic_mri_pulse.png',savefig=False):
 	'''
@@ -3160,7 +3363,7 @@ def plot_pulse(rf,gr,dt,picname='tmppic_mri_pulse.png',savefig=False):
 	# 	plt.savefig(picname)
 	# else:
 	# 	plt.show()
-	# return
+	return
 def plot_pulses(pulse_list:list,picname='tmppic_mri_pulse.png',savefig=False):
 	'''
 	input: 
@@ -3480,11 +3683,13 @@ def plot_cube_slices(spinarraygrid,value,masked=False,valuerange=None,title='',
 	images = []
 	for idx in spinarraygrid.slice_spin_idx:
 		tmpimage = tmpdata[idx].reshape(spinarraygrid.dim[0],spinarraygrid.dim[1])
+		tmpimage = np.rot90(tmpimage)
 		images.append(tmpimage)
 		# print(idx)
 		# print(tmpdata)
 	# plot:
-	if False:
+	case = 3
+	if case==1:
 		fig, axs = plt.subplots(nrows=4, ncols=4, figsize=(8,8))
 		i = 0
 		for ax,image in zip(axs.flat,images):
@@ -3494,12 +3699,16 @@ def plot_cube_slices(spinarraygrid,value,masked=False,valuerange=None,title='',
 			if i == slice_num:
 				break
 		plt.tight_layout()
-		if save_fig:
+		if savefig:
 			print('save fig...'+picname)
 			plt.savefig(picname)
 		plt.show()
-	else:
+	elif case==2:
 		plot_images(images,valuerange,title=title,picname=picname,savefig=savefig)
+	elif case==3:
+		plot_images_asone(images,valuerange,title=title,picname=picname,savefig=savefig)
+	else:
+		pass
 	return
 	# -------
 def plot_slices(spinarraygrid,M,plotmethod,valuerange=None,picname='mri_pic_mag_slices.png',savefig=False):
@@ -3545,6 +3754,197 @@ def plot_slices(spinarraygrid,M,plotmethod,valuerange=None,picname='mri_pic_mag_
 	else:
 		plot_images(images,valuerange,picname)
 	return
+def plot_cube_magnetization(spinarraygrid,mag,masked=False,title='',
+		picname='tmppic_cube_slices.png',savefig=False):
+	"""
+	input:
+	- spinarraygrad: SpinArray (as_cube == True), 
+	- mag: (3,num), 
+	- valuerange: e.g., [0,1],
+	- title: (str)
+	- picname: 
+	- savefig:  
+	"""
+
+	dim = spinarraygrid.dim
+	# if the cube has a mask
+	if masked:
+		# num = spinarraygrid.dim[0]*spinarraygrid.dim[1]*spinarraygrid.dim[2]
+		# mask_idx = spinarraygrid.mask_idx
+		magx = spinarraygrid.match_value_grid(mag[0,:]).reshape(dim)
+		magy = spinarraygrid.match_value_grid(mag[1,:]).reshape(dim)
+		magz = spinarraygrid.match_value_grid(mag[2,:]).reshape(dim)
+	else:
+		magx = mag[0,:].reshape(dim)
+		magy = mag[1,:].reshape(dim)
+		magz = mag[2,:].reshape(dim)
+	
+	magx = np.array(magx.tolist())
+	magy = np.array(magy.tolist())
+	magz = np.array(magz.tolist())
+	# print(magx.shape)
+	
+	nx = math.ceil(math.sqrt(dim[2]))+1
+	ny = math.ceil(dim[2]/nx)
+	# print(nx,ny)
+
+	fig = plt.figure(figsize=(15,5))
+	image_big = np.zeros((nx*(dim[0]+1),ny*(dim[1]+1)))
+	for y in range(ny):
+		for x in range(nx):
+			t = x+ny*y
+			if t >= dim[2]:
+				break
+			image_big[x*(dim[0]+1):x*(dim[0]+1)+dim[0], y*(dim[1]+1):y*(dim[1]+1)+dim[1]] = magx[:,:,t]
+	ax1 = plt.subplot(1,3,1)
+	ims = ax1.imshow(image_big.T)
+	ax1.set_title('Mx')
+	fig.colorbar(ims)
+
+	ax2 = plt.subplot(1,3,2)
+	image_big = np.zeros((nx*(dim[0]+1),ny*(dim[1]+1)))
+	for y in range(ny):
+		for x in range(nx):
+			t = x+ny*y
+			if t >= dim[2]:
+				break
+			image_big[x*(dim[0]+1):x*(dim[0]+1)+dim[0], y*(dim[1]+1):y*(dim[1]+1)+dim[1]] = magy[:,:,t]
+	ims = ax2.imshow(image_big.T)
+	ax2.set_title('My')
+	fig.colorbar(ims)
+
+	ax3 = plt.subplot(1,3,3)
+	image_big = np.zeros((nx*(dim[0]+1),ny*(dim[1]+1)))
+	for y in range(ny):
+		for x in range(nx):
+			t = x+ny*y
+			if t >= dim[2]:
+				break
+			image_big[x*(dim[0]+1):x*(dim[0]+1)+dim[0], y*(dim[1]+1):y*(dim[1]+1)+dim[1]] = magz[:,:,t]
+	ims = ax3.imshow(image_big.T)
+	ax3.set_title('Mz')
+	fig.colorbar(ims)
+
+
+	check_savefig(savefig,picname)
+
+	return
+
+def plot_cube_betasquare(spinarraygrid,betasquare,masked=False,title='',
+		picname='tmppic_cube_slices.png',savefig=False):
+	"""
+	input:
+	- spinarraygrad: SpinArray (as_cube == True), 
+	- mag: (3,num), 
+	- valuerange: e.g., [0,1],
+	- title: (str)
+	- picname: 
+	- savefig:  
+	"""
+
+	dim = spinarraygrid.dim
+	# if the cube has a mask
+	if masked:
+		mag = spinarraygrid.match_value_grid(torch.abs(betasquare)).reshape(dim)
+		pha = spinarraygrid.match_value_grid(torch.angle(betasquare)).reshape(dim)
+	else:
+		mag = torch.abs(betasquare).reshape(dim)
+		pha = torch.angle(betasquare).reshape(dim)
+	
+	mag = np.array(mag.tolist())
+	pha = np.array(pha.tolist())
+	
+	nx = math.ceil(math.sqrt(dim[2]))+1
+	ny = math.ceil(dim[2]/nx)
+	# print(nx,ny)
+
+	fig = plt.figure(figsize=(10,5))
+	image_big = np.zeros((nx*(dim[0]+1),ny*(dim[1]+1)))
+	for y in range(ny):
+		for x in range(nx):
+			t = x+ny*y
+			if t >= dim[2]:
+				break
+			image_big[x*(dim[0]+1):x*(dim[0]+1)+dim[0], y*(dim[1]+1):y*(dim[1]+1)+dim[1]] = mag[:,:,t]
+	ax1 = plt.subplot(1,2,1)
+	ims = ax1.imshow(image_big.T,vmin=0,vmax=1)
+	ax1.set_title(r'$|\beta^2|$')
+	fig.colorbar(ims)
+
+	ax2 = plt.subplot(1,2,2)
+	image_big = np.zeros((nx*(dim[0]+1),ny*(dim[1]+1)))
+	for y in range(ny):
+		for x in range(nx):
+			t = x+ny*y
+			if t >= dim[2]:
+				break
+			image_big[x*(dim[0]+1):x*(dim[0]+1)+dim[0], y*(dim[1]+1):y*(dim[1]+1)+dim[1]] = pha[:,:,t]
+	ims = ax2.imshow(image_big.T)
+	ax2.set_title(r'$\angle\beta^2$')
+	fig.colorbar(ims)
+
+
+	check_savefig(savefig,picname)
+
+	return
+
+def plot_cube_B0B1maps(spinarraygrid,masked=False,title='',
+		picname='tmppic_cube_slices.png',savefig=False):
+	"""
+	input:
+	- spinarraygrad: SpinArray (as_cube == True), 
+	- mag: (3,num), 
+	- valuerange: e.g., [0,1],
+	- title: (str)
+	- picname: 
+	- savefig:  
+	"""
+
+	dim = spinarraygrid.dim
+	# if the cube has a mask
+	if masked:
+		b0 = spinarraygrid.match_value_grid(spinarraygrid.df).reshape(dim)
+		b1 = spinarraygrid.match_value_grid(spinarraygrid.kappa).reshape(dim)
+	else:
+		b0 = torch.abs(b0).reshape(dim)
+		b1 = torch.angle(b1).reshape(dim)
+	
+	b0 = np.array(b0.tolist())
+	b1 = np.array(b1.tolist())
+	
+	nx = math.ceil(math.sqrt(dim[2]))+1
+	ny = math.ceil(dim[2]/nx)
+	# print(nx,ny)
+
+	fig = plt.figure(figsize=(10,5))
+	image_big = np.zeros((nx*(dim[0]+1),ny*(dim[1]+1)))
+	for y in range(ny):
+		for x in range(nx):
+			t = x+ny*y
+			if t >= dim[2]:
+				break
+			image_big[x*(dim[0]+1):x*(dim[0]+1)+dim[0], y*(dim[1]+1):y*(dim[1]+1)+dim[1]] = b0[:,:,t]
+	ax1 = plt.subplot(1,2,1)
+	ims = ax1.imshow(image_big.T)
+	ax1.set_title(r'B0 map')
+	fig.colorbar(ims)
+
+	ax2 = plt.subplot(1,2,2)
+	image_big = np.zeros((nx*(dim[0]+1),ny*(dim[1]+1)))
+	for y in range(ny):
+		for x in range(nx):
+			t = x+ny*y
+			if t >= dim[2]:
+				break
+			image_big[x*(dim[0]+1):x*(dim[0]+1)+dim[0], y*(dim[1]+1):y*(dim[1]+1)+dim[1]] = b1[:,:,t]
+	ims = ax2.imshow(image_big.T)
+	ax2.set_title(r'B1 map')
+	fig.colorbar(ims)
+
+	check_savefig(savefig,picname)
+
+	return
+
 # ================================================================================
 def test_plots(savefig=False):
 	cube = Build_SpinArray(fov=[4,4,4],dim=[5,5,5])

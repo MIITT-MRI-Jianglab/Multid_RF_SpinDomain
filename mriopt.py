@@ -1879,7 +1879,7 @@ class Spindomain_opt_solver:
             mask[:,unmask_idx] = 1.0
         return mask
     # main optimization process:
-    def optimize(self,spinarray,pulse,para_target,loss_fn,loss_para_fn,requirements):
+    def optimize(self,spinarray,pulse,loss_fn,loss_para_fn,requirements):
         '''
         optimization process, 
         - spinarray
@@ -1928,10 +1928,12 @@ class Spindomain_opt_solver:
         roi_idx = requirements['roi_index']
         target_foi_idx = requirements['target_foi_idx']
         lossweight = requirements['lossweight'] # loss weighting
+        masked = check_req_var(requirements,'masked',False)
         # 
         show_details = True
         show_details_rfstep = 1
         show_details_grstep = 1
+        outputpath = requirements['outputfolder']+requirements['outputdatafile']
         
         
         # saved to the solver:
@@ -1968,6 +1970,13 @@ class Spindomain_opt_solver:
         self.optinfos['initial_roi_target'] = [self.target_para_r[roi_idx[0]].item(), self.target_para_i[roi_idx[0]].item()]
         self.optinfos['final_roi_target'] = [self.target_para_r[roi_idx[0]].item(), self.target_para_i[roi_idx[0]].item()]
 
+
+        def save_result(rf,gr,dt,outputpath):
+            '''save results during the optimization'''
+            pulse = mri.Pulse(rf=rf,gr=gr,dt=dt,device=device)
+            mri.save_pulse(pulse,logname=outputpath,otherinfodic={})
+            # print('| --- save pulse')
+            return
 
         # display requirements:
         if True:
@@ -2114,6 +2123,7 @@ class Spindomain_opt_solver:
             # when the case using LBFGS with exchange of variables in optimization:
             if rf_algo == 'arctan_LBFGS':
                 def closure():
+                    para_target = self.target_para_r
                     opt_rf.zero_grad()
                     opt_gr.zero_grad()
                     rf = transform_rf_back(trfmag,rfang,rfmax)
@@ -2309,6 +2319,8 @@ class Spindomain_opt_solver:
                     self.skykpk_memory_clear()
                     if rf_niter_increase: # if gradually increase rf iteration number
                         rf_niter = rf_niter + 5
+                    # save updated pulse
+                    save_result(rf,gr,dt,outputpath)
 
             # between rf and gr update:
             # -----------------------------
@@ -2523,6 +2535,8 @@ class Spindomain_opt_solver:
                                 rf.requires_grad = True
                         #NOTE: not used in final design
                     self.skykpk_memory_clear()
+                    # save updated pulse
+                    save_result(rf,gr,dt,outputpath)
 
             # ----------------------------
             # Another choice: update rf and gr together:
