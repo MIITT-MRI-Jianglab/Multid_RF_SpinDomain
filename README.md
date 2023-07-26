@@ -39,7 +39,7 @@ The basic functions for describing the spin behaviors and simulations including 
 - Compare methods for calculating derivative (for spin-domain simulation): 
   - The experiment is `EX_simu_compare.py`
   - Two simulators are compared, one is only build forward computation, another is our implementation with both forward and backward function. The backward function is explicitly implemented in Pytorch using auto-differentiation. 
-  - Two things are compared for the performance: one is the time for computing derivative (when fixed 1000 timepoints of pulse), another is the monitered peak memory usage (when fixed 1000 spins). ![simulation-performance](MRIPulse/EX_results/EX_simu_compare_speed.png)
+  - Two things are compared for the performance: one is the time for computing derivative (when fixed 1000 timepoints of pulse), another is the monitered peak memory usage (when fixed 1000 spins). ![simulation-performance](EX_results/EX_simu_compare_speed.png)
 - How transverse magnetization rotate with different spin-domain parameters:
   - The experiment is `EX_transverse_rotation_illustration.py`. 
   - Considered different value of $\beta^2$ with norm equals 1 produces the rotation in transverse plane. For example, green denotes the initial transverse magnetization, red denotes the rotated magnetization, and blue denotes the computed rotation axis from them. ![rotations](EX_results/EX_transverse_rotation_illustration.png)
