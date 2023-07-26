@@ -30,7 +30,7 @@ def main():
     M = np.exp((0+1j)*np.pi/4)
 
     # plot:
-    picname = 'pictures/EX_transverse_rotation_illustration.png'
+    picname = 'EX_transverse_rotation_illustration.png'
     fig,axs = plt.subplots(n,num,figsize=(2*num,2*n),subplot_kw={'projection': 'polar'})
     for i in range(n):
         for j in range(num):
