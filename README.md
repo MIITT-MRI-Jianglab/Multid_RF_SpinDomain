@@ -24,8 +24,6 @@ The basic functions for describing the spin behaviors and simulations including 
 - `mri.py`: provides definition of basic class, e.g. `Spin`, `SpinArray`, `Pulse`, `Signal`. It also provides simulation functions (e.g., Bloch simulation, spin-domain simulation) with self-implemented autodifferentiation.
 - `mriopt.py`: provides solver for optimizing the object loss function. 
 
-
-
 ## Demos
 **Demo: design of 3D refocusing pulse**
 - The object, ROI, optimization parameters are already set in the code, but you are welcome to look into the `demo_Design3dRefocusing.py` and make more changes beyond the following demo.
@@ -39,10 +37,9 @@ The basic functions for describing the spin behaviors and simulations including 
 
 ## Additional experiments
 - Compare methods for calculating derivative (for spin-domain simulation): 
-  - Two methods are compared, one is only build forward computation, another is our implementation with both forward and backward function. The backward function is explicitly implemented in Pytorch using auto-differentiation. 
-  - Two features are compared, one is the time for computing derivative, another is the monitered peak memory usage.
   - The experiment is `EX_simu_compare.py`
-  - The comparison of the speed: (1000 time points for RF pulse) ![](EX_results/EX_simu_compare_speed.png)
+  - Two simulators are compared, one is only build forward computation, another is our implementation with both forward and backward function. The backward function is explicitly implemented in Pytorch using auto-differentiation. 
+  - Two things are compared for the performance: one is the time for computing derivative (when fixed 1000 timepoints of pulse), another is the monitered peak memory usage (when fixed 1000 spins). ![](EX_results/EX_simu_compare_speed.png)
 - How transverse magnetization rotate with different spin-domain parameters:
   - The experiment is `EX_transverse_rotation_illustration.py`. 
   - Considered different value of $\beta^2$ with norm equals 1 produces the rotation in transverse plane. For example, green denotes the initial transverse magnetization, red denotes the rotated magnetization, and blue denotes the computed rotation axis from them. ![](EX_results/EX_transverse_rotation_illustration.png)
