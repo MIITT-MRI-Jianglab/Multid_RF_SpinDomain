@@ -35,8 +35,6 @@ The basic functions for describing the spin behaviors and simulations including 
     - (the inhomogeneous maps are already specified in the python codes, i.e., `init_B0map_modified.mat` and `init_B1map_modified.mat`)
 2. Running design 3D refocusing pulse without B0 and B1 maps (assuming homogeneous)
     - run `python demo_Design3dRefocusing.py --b0map -1 --b1map -1 --outpulse 'pulse_opt_log_2.mat'`
-3. A separate file for final simulation of the designed pulses with inhomo B0 and B1 maps, for comparison
-    - (it uses same object as in step 1,2 experiments is created and simulated)
 
 ## Additional experiments
 - Compare methods for calculating derivative (for spin-domain simulation): 
