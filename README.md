@@ -74,4 +74,7 @@ This work is inspired by and takes reference of
 - https://github.com/tianrluo/AutoDiffPulses
 - https://github.com/mikgroup/sigpy
 
-note: the `mritools` is a package that includes modules for defining pulse, simulation functions, and pulse optimization. This is parts of the package the author also used for different projects, necessary functions are remained for the reproducing the results. But the full package might be released later.
+
+
+---
+note: the `mritools` is a package that includes modules for defining objects, simulation functions, and pulse optimization. This is part of the package the author also used for other different projects. But necessary functions are remained for running experiments and optimizations. The full package might be released later.
