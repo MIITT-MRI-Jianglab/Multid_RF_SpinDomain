@@ -1,0 +1,2 @@
+python demo_refocusing_newinit.py --b0map 1 --b1map 1 --folder refocusing_11_spins_4ms --optimization 1 
+python demo_refocusing_newinit.py --b0map 1 --b1map 1 --folder refocusing_11_spins_4ms --evaluation 1
