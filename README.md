@@ -7,7 +7,7 @@ For running large experiments, it would be better use GPU for speed.
 One major benefit of this project: first, we are able to optimize a 3D reofcusing pulse based on spin-domain representation, which simplifies the design problem. We also demonstrated the possibility of desiging 3D excitation pulse based spin-domain representation. Second, our simulation function was implemented with derived Jacobian, which speed up the evaluation of derivatives for the optimization updates.
 
 The manuscript related to this project:<br>
-Multi-Dimensional RF Pulse Design Using Auto-Differentiable Spin-Domain Optimization for Reduced Field-of-View Imaging, 2024, Jiayao Yang, Jon-Fredrik Nielsen, Jeffrey A. Fessler, Yun Jiang
+Jiayao Yang, Jon-Fredrik Nielsen, Jeffrey A. Fessler, Yun Jiang. Multi-Dimensional RF Pulse Design Using Auto-Differentiable Spin-Domain Optimization for Reduced Field-of-View Imaging. Magn Reson Med. 
 
 (The output figures may not look exactly the same as in the manuscript, since the they are re-plotted in Matlab.)
 
@@ -19,7 +19,7 @@ Multi-Dimensional RF Pulse Design Using Auto-Differentiable Spin-Domain Optimiza
 - Cuda 11.3 (for GPU)
 - and other necessary python packages
 
-Example B0 and B1 maps, and initial pulses are provided under
+Example B0 and B1 maps, and initial pulses are provided under. The method used for generate initiail pulse was https://github.com/toppeMRI/ZoomedMRI/tree/master/RFdesign
 ```
 data
 ├── phantom_b0_1.mat
