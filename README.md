@@ -1,80 +1,61 @@
-# Multidimensional RF pulse design using auto-differentiable spin-domain optimization for reduced field-of-view imaging
+# Multidimensional RF pulse design using auto-differentiable spin-domain optimization and its application to reduced field-of-view imaging
 
-This repository provides code to simulate the spin-domain rotation and design multidimensional RF pulse in spin-domain for magnetic resonance imaging. The simulation is built using auto-differentiation in Pytorch. 
+This repository provides code to simulate RF pulse using the spin-domain representation, in order for the design of multidimensional RF pulse for MRI. 
+The simulation function is built using auto-differentiation in Pytorch. 
 And demos for designing 3D refocusing and 3D excitation pulses are provided. 
-For running large experiments, it would be better use GPU for speed.
+For running large experiments, it would be better to use GPU for speed.
 
-One major benefit of this project: first, we are able to optimize a 3D reofcusing pulse based on spin-domain representation, which simplifies the design problem. We also demonstrated the possibility of desiging 3D excitation pulse based spin-domain representation. Second, our simulation function was implemented with derived Jacobian, which speed up the evaluation of derivatives for the optimization updates.
+![figure](files/multid_rf_SpinDomainOpt_refocusing.gif)
 
-The manuscript related to this project:<br>
-Jiayao Yang, Jon-Fredrik Nielsen, Jeffrey A. Fessler, Yun Jiang. Multi-Dimensional RF Pulse Design Using Auto-Differentiable Spin-Domain Optimization for Reduced Field-of-View Imaging. Magn Reson Med. 
+## Installation 
+Recommend installing with python virtual environment: e.g., [https://docs.python.org/3/library/venv.html](https://docs.python.org/3/library/venv.html)
 
-(The output figures may not look exactly the same as in the manuscript, since the they are re-plotted in Matlab.)
+Recommend installing the pytorch with CUDA first: [https://pytorch.org/](https://pytorch.org/).
+Then install the package as described below:
 
-## General description
-**My running environment**
-- Ubuntu 22.04.5 LTS
-- Python 3.10.12
-- Pytorch 2.3.1
-- Cuda 11.3 (for GPU)
-- and other necessary python packages
-
-Example B0 and B1 maps, and initial pulses are provided under. The method used for generate initiail pulse was https://github.com/toppeMRI/ZoomedMRI/tree/master/RFdesign
+Download the repository or use the command line 
 ```
-data
-├── phantom_b0_1.mat
-├── phantom_b0_2.mat
-├── phantom_b0_3.mat
-├── phantom_b0_4.mat
-├── phantom_b1_1.mat
-├── phantom_b1_2sim.mat
-├── phantom_b1_3sim.mat
-├── phantom_mask.mat
-├── pulse_init_3d.mat
-└── pulse_init_spins_4ms.mat
+git clone https://github.com/MIITT-MRI-Jianglab/Multid_RF_SpinDomain.git
 ```
+
+Option 1: install as a package if you just want to use the functions
+```
+pip install .
+```
+
+Option 2: if you want to make your modifications to the codes, then in the examples, you should change/add the path to the package by yourself.
 
 ## Demos
-**Demo of designing 3D refocusing and 3D excitation pulses:**<br>
-The python scripts are `demo_refocusing.py` and `demo_excitation.py`. More details can be found in these two functions.
-- download the project
-- go to the project folder
-- in the terminal, run the script `bash experiments_demo.sh` (make sure your python/virtual environment has required packages)
-- the results should be saved in `outputs/refocusing_demo` and `outputs/excitation_demo`
-
+Some demos are provided for understanding the usage of functions
+- Simulate RF pulse using spin-domain simulation function
+    - [demo1_spindomain_simulation](demos/demo1_spindomain_simulation.ipynb)
+- Calculating gradients (derivative) for optimization 
+    - [demo2_calculating_derivatives](demos/demo2_calculating_derivatives.ipynb)
 
 ## Experiments
-**Design 3D refocusing and 3D excitation pulse.** 
-A shell script that runs all the experiments with different setups is
-```sh
-bash experiments.sh
+**3D refocusing/excitation pulse optimization**
+- The python file `design_3dpulses.py` provided example of 3D excitation and 3D refocusing pulse optimization. 
+
+Compare simulator performance with explicit Jacobian and with default Jacobian operation. 
+- run `bash simulator_perf.sh`, the results will be saved under `outputs/simulator`
+- then run `python simulator_perf_plot.py` to plot the results
+
+## Citation 
+Paper: https://doi.org/10.1002/mrm.30607
+
+If you find this helpful to your work, please consider cite our work:
 ```
-
-The following are some additional experiments for further demonstration. 
-
-
-**3D refocusing pulse optimization using SPINS initialization.**<br>
-```sh
-bash experiments_additiaonl.sh
+@article{yang2025multidimensional,
+    title={Multidimensional RF pulse design using auto-differentiable spin-domain optimization and its application to reduced field-of-view imaging},
+    author={Yang, Jiayao and Nielsen, Jon-Fredrik and Fessler, Jeffrey A and Jiang, Yun},
+    journal={Magnetic Resonance in Medicine},
+    year={2025},
+    publisher={Wiley Online Library}
+}
 ```
-
-**Compare performance of the implemented simulator.**<br>
-The scripts are provided by `simulation_efficiency.py` and `simulation_effi.sh`. <br>
-To run the experiments run `bash simulation_effi.sh`, the results will be saved to assigned folder.
-
-
-**How transverse magnetization rotate with different spin-domain parameters**:<br>
-To demostrate how is the transverse magnetization affected by different spin-domain parameters. 
-The experiment is `illustration_transverse_rotation.py`. 
-It considered different value of $\beta^2$ with norm equals 1 produces the rotation in transverse plane. For example, green denotes the initial transverse magnetization, red denotes the rotated magnetization, and blue denotes the computed rotation axis from them. ![fig_transverse_rotation_illustration.png](fig_transverse_rotation_illustration_demo.png)
-
 
 ## Acknowledgements
-This work is inspired by and takes reference of
+This implementation of this study was inspired by the following sources, which were used as references:
 - https://github.com/tianrluo/AutoDiffPulses
 - https://github.com/mikgroup/sigpy
-
-
-
----
-note: the `mritools` is a package that includes modules for defining objects, simulation functions, and pulse optimization. This is part of the package the author also used for other different projects. But necessary functions are remained for running experiments and optimizations. The full package might be released later.
+- https://github.com/toppeMRI/ZoomedMRI/tree/master/RFdesign 
