@@ -36,6 +36,8 @@ Some demos are provided for understanding the usage of functions
 ### 3D refocusing/excitation pulse optimization
 - The python file `design_3dpulses.py` provided example of 3D excitation and 3D refocusing pulse optimization. 
 
+![](outputs/exampleResults_refocusing_0_0/plot.png)
+
 ### Simulators  
 Compare simulator performance with explicit Jacobian and with default Jacobian operation. 
 - run `bash simulator_perf.sh`, the results will be saved under `outputs/simulator`
