@@ -1,6 +1,6 @@
 # Multidimensional RF pulse design using auto-differentiable spin-domain optimization and its application to reduced field-of-view imaging
 
-This repository provides code to simulate RF pulse using the spin-domain representation, in order for the design of multidimensional RF pulse for MRI. 
+This repository provides code to simulate RF pulse using the spin-domain representation, and optimize multidimensional RF pulses for MRI. 
 
 The simulation function is built using auto-differentiation in Pytorch for computation efficiency. 
 
