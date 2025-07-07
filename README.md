@@ -7,6 +7,8 @@ The simulation function is built using auto-differentiation in Pytorch for compu
 And demos for designing 3D refocusing and 3D excitation pulses are provided. 
 For running large experiments, it would be better to use GPU for speed.
 
+![algorithm](files/algorithm.png)
+
 ![figure](files/multid_rf_SpinDomainOpt_refocusing.gif)
 
 [paper: Multidimensional RF pulse design using auto-differentiable spin-domain optimization and its application to reduced field-of-view imaging](https://doi.org/10.1002/mrm.30607)
