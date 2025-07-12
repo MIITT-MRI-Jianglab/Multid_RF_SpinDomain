@@ -41,6 +41,7 @@ Some demos are provided for understanding the usage of functions
 ## Experiments
 ### 3D refocusing/excitation pulse optimization
 - The python file `design_3dpulses.py` provided example of 3D excitation and 3D refocusing pulse optimization. 
+- The initialization was designed using: https://github.com/toppeMRI/ZoomedMRI/tree/master/RFdesign 
 
 ![](outputs/exampleResults_refocusing_0_0/plot.png)
 
