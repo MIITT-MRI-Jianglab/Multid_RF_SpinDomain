@@ -589,7 +589,7 @@ class Spin:
         # --------------------------------------------
         Beff = torch.zeros((3,Nt),device=device)  # mT
         Beff[:2,:] = rf*self.kappa                # mT (rf pulse, w/ transmission factor)
-        Beff[2,:]  = self.loc@gr*1e-2 + self.df*1e-3/self.gamma
+        Beff[2,:]  = self.loc@gr*1e-2 - self.df*1e-3/self.gamma
         return Beff
     
     # --------------------------------------------------------------
@@ -828,7 +828,7 @@ class SpinArray:
         # df[Hz] / gamma[MHz/T] * 1e3 = mT
         # -----------------------------------
         # Effective magnetic field given by: off-resonance
-        offBeff = self.df/self.gamma*1e-3  #(1*num) Hz/(MHz/T) = mT
+        offBeff = - self.df/self.gamma*1e-3  #(1*num) Hz/(MHz/T) = mT
         offBeff = offBeff.reshape(num,1)
 
         # gradB = spinarray.loc.T@gr*1e-2
